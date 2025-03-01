@@ -9,6 +9,7 @@ int main() {
     if (error == OK) {
         char* cardString = cardToString(testCard);
         printf("%s\n", cardString);
+        //writeCard("testOut.vcf", testCard);
         free(cardString);
         deleteCard(testCard);
     } else {

@@ -190,6 +190,63 @@ char* errorToString(VCardErrorCode err) {
     
     return err_string;
 }
+
+VCardErrorCode writeCard(const char* fileName, const Card* obj) {
+    FILE* fp;
+    char* cardString = NULL;
+    char* fullName = NULL;
+    char* birthday = NULL;
+    char* anniversary = NULL;
+    char* optionalProperties = NULL;
+    
+    if (obj == NULL) {
+        return WRITE_ERROR;
+    }
+
+    if (fileName == NULL) {
+        return WRITE_ERROR;
+    }
+
+    // check the file extension
+    char* extension = strrchr(fileName, '.');
+    if (extension == NULL || (strcmp(extension, ".vcf") != 0 && strcmp(extension, ".vcard") != 0)) {
+        return WRITE_ERROR;
+    }
+
+    fp = fopen(fileName, "w");
+    if (fp == NULL) {
+        return WRITE_ERROR;
+    }
+
+    fullName = propertyToString(obj->fn);
+    birthday = dateToString(obj->birthday);
+    anniversary = dateToString(obj->anniversary);
+    optionalProperties = toString(obj->optionalProperties);
+
+    cardString = (char*)malloc(strlen(fullName) + 2); // +2 because there needs to be one for the null terminator, and one extra for \r to be added
+    strcpy(cardString, fullName);
+    if (birthday) {
+        cardString = (char*)realloc(cardString, strlen(cardString) + 5 + strlen(birthday) + 2);
+        strcat(cardString, "BDAY:");
+        strcat(cardString, birthday);
+    }
+    if (anniversary) {
+        cardString = (char*)realloc(cardString, strlen(cardString) + 13 + strlen(anniversary) + 2);
+        strcat(cardString, "ANNIVERSARY:");
+        strcat(cardString, anniversary);
+    }
+    cardString = (char*)realloc(cardString, strlen(cardString) + strlen(optionalProperties) + 2);
+    strcat(cardString, optionalProperties);
+
+    free(fullName);
+    free(birthday);
+    free(anniversary);
+    free(optionalProperties);
+
+    return OK;
+}
+
+VCardErrorCode validateCard(const Card* obj);
 // *************************************************************************
 
 // ************* List helper functions ************************************* 
@@ -292,7 +349,9 @@ char* propertyToString(void* prop) {
         strcat(propertyString, property->values->printData(value));
         strcat(propertyString, ";");
     }
-    propertyString[strlen(propertyString) - 1] = '\n';
+    propertyString = (char*)realloc(propertyString, strlen(propertyString) + 2); // make room for the \r
+    propertyString[strlen(propertyString) - 1] = '\n'; // replace the last ';' with '\n'
+    strcat(propertyString, "\r"); // add the carriage return
 
     return propertyString;
 }

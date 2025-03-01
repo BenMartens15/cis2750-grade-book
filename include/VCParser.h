@@ -124,4 +124,27 @@ int compareDates(const void* first,const void* second);
 char* dateToString(void* date);
 // **************************************************************************
 
+// ************* Assignment 2 functions - MUST be implemented ***************
+
+/** Function to writing a Card object into a file in vCard format.
+ *@pre Card object exists, and is not NULL.
+        fileName is not NULL, has the correct extension
+ *@post Card has not been modified in any way, and a file representing the
+        Card contents in vCard format has been created
+ *@return the error code indicating success or the error encountered when traversing the Card
+ *@param obj - a pointer to a Card struct
+		 fileName - the name of the output file
+ **/
+ VCardErrorCode writeCard(const char* fileName, const Card* obj);
+
+
+ /** Function to writing a Card object into a file in vCard format.
+  *@pre Card object exists, and is not NULL.
+  *@post Card has not been modified in any way, and a file representing the
+		 Card contents in vCard format has been created
+  *@return the error code indicating success or the error encountered when validating the Card
+  *@param obj - a pointer to a Card struct
+  **/
+ VCardErrorCode validateCard(const Card* obj);
+
 #endif	
