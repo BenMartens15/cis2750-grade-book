@@ -129,14 +129,26 @@ char* cardToString(const Card* obj) {
     cardString = (char*)malloc(strlen(fullName) + 1);
     strcpy(cardString, fullName);
     if (birthday) {
-        cardString = (char*)realloc(cardString, strlen(cardString) + 5 + strlen(birthday) + 1);
-        strcat(cardString, "BDAY:");
-        strcat(cardString, birthday);
+        if (obj->birthday->isText) {
+            cardString = (char*)realloc(cardString, strlen(cardString) + 16 + strlen(birthday) + 1);
+            strcat(cardString, "BDAY;VALUE=text:");
+            strcat(cardString, birthday);
+        } else {
+            cardString = (char*)realloc(cardString, strlen(cardString) + 5 + strlen(birthday) + 1);
+            strcat(cardString, "BDAY:");
+            strcat(cardString, birthday);
+        }
     }
     if (anniversary) {
-        cardString = (char*)realloc(cardString, strlen(cardString) + 13 + strlen(anniversary) + 1);
-        strcat(cardString, "ANNIVERSARY:");
-        strcat(cardString, anniversary);
+        if (obj->anniversary->isText) {
+            cardString = (char*)realloc(cardString, strlen(cardString) + 23 + strlen(anniversary) + 1);
+            strcat(cardString, "ANNIVERSARY;VALUE=text:");
+            strcat(cardString, anniversary);
+        } else {
+            cardString = (char*)realloc(cardString, strlen(cardString) + 12 + strlen(anniversary) + 1);
+            strcat(cardString, "ANNIVERSARY:");
+            strcat(cardString, anniversary);
+        }
     }
     cardString = (char*)realloc(cardString, strlen(cardString) + strlen(optionalProperties) + 1);
     strcat(cardString, optionalProperties);
@@ -223,30 +235,58 @@ VCardErrorCode writeCard(const char* fileName, const Card* obj) {
     anniversary = dateToString(obj->anniversary);
     optionalProperties = toString(obj->optionalProperties);
 
-    cardString = (char*)malloc(strlen(fullName) + 2); // +2 because there needs to be one for the null terminator, and one extra for \r to be added
-    strcpy(cardString, fullName);
+    cardString = (char*)malloc(27);
+    strcpy(cardString, "BEGIN:VCARD\r\nVERSION:4.0\r\n");
+
+    cardString = (char*)realloc(cardString, strlen(cardString) + strlen(fullName) + 1);
+    strcat(cardString, fullName);
     if (birthday) {
-        cardString = (char*)realloc(cardString, strlen(cardString) + 5 + strlen(birthday) + 2);
-        strcat(cardString, "BDAY:");
-        strcat(cardString, birthday);
+        if (obj->birthday->isText) {
+            cardString = (char*)realloc(cardString, strlen(cardString) + 16 + strlen(birthday) + 1);
+            strcat(cardString, "BDAY;VALUE=text:");
+            strcat(cardString, birthday);
+        } else {
+            cardString = (char*)realloc(cardString, strlen(cardString) + 5 + strlen(birthday) + 1);
+            strcat(cardString, "BDAY:");
+            strcat(cardString, birthday);
+        }
+        cardString[strlen(cardString) - 1] = '\r'; // replace the newline character with a carriage return
+        strcat(cardString, "\n"); // add back the newline character after the carriage return
     }
     if (anniversary) {
-        cardString = (char*)realloc(cardString, strlen(cardString) + 13 + strlen(anniversary) + 2);
-        strcat(cardString, "ANNIVERSARY:");
-        strcat(cardString, anniversary);
+        if (obj->anniversary->isText) {
+            cardString = (char*)realloc(cardString, strlen(cardString) + 23 + strlen(anniversary) + 1);
+            strcat(cardString, "ANNIVERSARY;VALUE=text:");
+            strcat(cardString, anniversary);
+        } else {
+            cardString = (char*)realloc(cardString, strlen(cardString) + 12 + strlen(anniversary) + 1);
+            strcat(cardString, "ANNIVERSARY:");
+            strcat(cardString, anniversary);
+        }
+        cardString[strlen(cardString) - 1] = '\r'; // replace the newline character with a carriage return
+        strcat(cardString, "\n"); // add back the newline character after the carriage return
     }
-    cardString = (char*)realloc(cardString, strlen(cardString) + strlen(optionalProperties) + 2);
+    cardString = (char*)realloc(cardString, strlen(cardString) + strlen(optionalProperties) + 1);
     strcat(cardString, optionalProperties);
+
+    cardString = (char*)realloc(cardString, strlen(cardString) + 12); // make room for "END:VCARD\r\n"
+    strcat(cardString, "END:VCARD\r\n");
+
+    fputs(cardString, fp); // write the string to the file
 
     free(fullName);
     free(birthday);
     free(anniversary);
     free(optionalProperties);
+    free(cardString);
+    fclose(fp);
 
     return OK;
 }
 
-VCardErrorCode validateCard(const Card* obj);
+VCardErrorCode validateCard(const Card* obj) {
+    return OK;
+}
 // *************************************************************************
 
 // ************* List helper functions ************************************* 
@@ -350,8 +390,8 @@ char* propertyToString(void* prop) {
         strcat(propertyString, ";");
     }
     propertyString = (char*)realloc(propertyString, strlen(propertyString) + 2); // make room for the \r
-    propertyString[strlen(propertyString) - 1] = '\n'; // replace the last ';' with '\n'
-    strcat(propertyString, "\r"); // add the carriage return
+    propertyString[strlen(propertyString) - 1] = '\r'; // replace the last ';' with '\r' (just used for writing back to a file)
+    strcat(propertyString, "\n"); // add the newline
 
     return propertyString;
 }
@@ -467,8 +507,9 @@ char* dateToString(void* date) {
 
     size_t length;
     if (dateTime->isText) {
-        dateTimeString = (char*)malloc(strlen(dateTime->text) + 1);
+        dateTimeString = (char*)malloc(strlen(dateTime->text) + 2);
         strcpy(dateTimeString, dateTime->text);
+        strcat(dateTimeString, "\n");
     } else if (strlen(dateTime->time) > 0) {
         length = strlen(dateTime->date) + 1 + strlen(dateTime->time) + 1;
         dateTimeString = (char*)malloc(length + 1);
