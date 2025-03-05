@@ -7,6 +7,7 @@ static ssize_t readNextLine(char** currentLine, char** nextLine, FILE* fp, size_
 static Property* createProperty(Card* card, const char* currentLine);
 static void parsePropertyValues(List* valueList, const char* name, char* valueString);
 static DateTime* createDateTime(char* inputString);
+static bool validateDateTime(DateTime* dateTime);
 
 // ************* Card parser ***********************************************
 VCardErrorCode createCard(char* fileName, Card** obj) {
@@ -285,6 +286,141 @@ VCardErrorCode writeCard(const char* fileName, const Card* obj) {
 }
 
 VCardErrorCode validateCard(const Card* obj) {
+    if (obj == NULL ||
+            obj->fn == NULL ||
+            obj->optionalProperties == NULL) {
+        return INV_CARD;
+    }
+
+    if (obj->birthday != NULL && !validateDateTime(obj->birthday)) {
+        return INV_DT;
+    }
+
+    if (obj->anniversary != NULL && !validateDateTime(obj->anniversary)) {
+        return INV_DT;
+    }
+
+    // counters for all properties with cardinality of *1 (exactly one instance may be present)
+    int kindCounter = 0;
+    int nCounter = 0;
+    int genderCounter = 0;
+    int prodidCounter = 0;
+    int revCounter = 0;
+    int uidCounter = 0;
+
+    void* propElement;
+    ListIterator propertyIterator = createIterator(obj->optionalProperties);
+    while ((propElement = nextElement(&propertyIterator)) != NULL) {
+        Property* property = (Property*)propElement;
+
+        // make sure all required properties are present
+        if (property->name == NULL ||
+                property->group == NULL ||
+                property->parameters == NULL ||
+                property->values == NULL) {
+            return INV_PROP;
+        }
+
+        // make sure no parameters are empty strings
+        void* paramElement;
+        ListIterator paramIter = createIterator(property->parameters);
+        while((paramElement = nextElement(&paramIter)) != NULL) {
+            Parameter* param = (Parameter*)paramElement;
+            if (strlen(param->name) == 0 || strlen(param->value) == 0) {
+                return INV_PROP;
+            }
+        }
+
+        if (strcasecmp(property->name, "VERSION") == 0) {
+            return INV_CARD;
+        }
+
+        if (strcasecmp(property->name, "BEGIN") == 0 || // all properties that have a cardinality of 1
+                strcasecmp(property->name, "END") == 0 ||
+                strcasecmp(property->name, "BDAY") == 0 ||
+                strcasecmp(property->name, "ANNIVERSARY") == 0) {
+            // already checked above, so if present in the optional properties, invalid
+            return INV_PROP;
+        } else if (strcasecmp(property->name, "SOURCE") == 0 || // all properties that require a single value
+                strcasecmp(property->name, "XML") == 0 ||
+                strcasecmp(property->name, "FN") == 0 ||
+                strcasecmp(property->name, "NICKNAME") == 0 ||
+                strcasecmp(property->name, "PHOTO") == 0 ||
+                strcasecmp(property->name, "TEL") == 0 ||
+                strcasecmp(property->name, "EMAIL") == 0 ||
+                strcasecmp(property->name, "IMPP") == 0 ||
+                strcasecmp(property->name, "LANG") == 0 ||
+                strcasecmp(property->name, "TZ") == 0 ||
+                strcasecmp(property->name, "GEO") == 0 ||
+                strcasecmp(property->name, "TITLE") == 0 ||
+                strcasecmp(property->name, "ROLE") == 0 ||
+                strcasecmp(property->name, "LOGO") == 0 ||
+                strcasecmp(property->name, "MEMBER") == 0 ||
+                strcasecmp(property->name, "RELATED") == 0 ||
+                strcasecmp(property->name, "CATEGORIES") == 0 ||
+                strcasecmp(property->name, "NOTE") == 0 ||
+                strcasecmp(property->name, "SOUND") == 0 ||
+                strcasecmp(property->name, "URL") == 0 ||
+                strcasecmp(property->name, "KEY") == 0 ||
+                strcasecmp(property->name, "FBURL") == 0 ||
+                strcasecmp(property->name, "CALADRURI") == 0 ||
+                strcasecmp(property->name, "CALURI") == 0) {
+            if (getLength(property->values) != 1) {
+                return INV_PROP;
+            }
+        } else if (strcasecmp(property->name, "KIND") == 0) {
+            if (kindCounter > 0) {
+                return INV_PROP;
+            }
+            kindCounter++;
+        } else if (strcasecmp(property->name, "PRODID") == 0) {
+            if (prodidCounter > 0) {
+                return INV_PROP;
+            }
+            prodidCounter++;
+        } else if (strcasecmp(property->name, "REV") == 0) {
+            if (revCounter > 0) {
+                return INV_PROP;
+            }
+            revCounter++;
+        } else if (strcasecmp(property->name, "UID") == 0) {
+            if (uidCounter > 0) {
+                return INV_PROP;
+            }
+            uidCounter++;
+        } else if (strcasecmp(property->name, "GENDER") == 0) {
+            if (genderCounter > 0) {
+                return INV_PROP;
+            }
+            genderCounter++;
+            if (getLength(property->values) != 1 && getLength(property->values) != 2) {
+                return INV_PROP;
+            }
+        } else if (strcasecmp(property->name, "CLIENTPIDMAP") == 0) {
+            if (getLength(property->values) != 2) {
+                return INV_PROP;
+            }
+        }  else if (strcasecmp(property->name, "N") == 0) {
+            if (nCounter > 0) {
+                return INV_PROP;
+            }
+            nCounter++;
+            if (getLength(property->values) != 5) {
+                return INV_PROP;
+            }
+        } else if (strcasecmp(property->name, "ADR") == 0) {
+            if (getLength(property->values) != 7) {
+                return INV_PROP;
+            }
+        } else if (strcasecmp(property->name, "ORG") == 0) { // ORG can have 1 or more values
+            if (getLength(property->values) == 0) {
+                return INV_PROP;
+            }
+        } else { // property is not in the list of properties in 6.1 - 6.9.3 in the vCard specification
+            return INV_PROP;
+        }
+    }
+
     return OK;
 }
 // *************************************************************************
@@ -816,5 +952,25 @@ DateTime* createDateTime(char* inputString) {
     }
 
     return dateTime;
+}
+
+bool validateDateTime(DateTime* dateTime) {
+    if (dateTime->date == NULL || dateTime->time == NULL || dateTime->text == NULL) {
+        return false;
+    } 
+
+    if (dateTime->UTC && dateTime->isText) {
+        return false;
+    }
+
+    if (dateTime->isText && (strlen(dateTime->date) > 0 || strlen(dateTime->time) > 0)) {
+        return false;
+    }
+
+    if (!dateTime->isText && strlen(dateTime->text) > 0) {
+        return false;
+    }
+
+    return true;
 }
 // **************************************************************************
