@@ -422,7 +422,8 @@ char* dateToString(void* date) {
 
     if (dateTime->UTC) {
         dateTimeString = (char*)realloc(dateTimeString, strlen(dateTimeString) + 2);
-        strcat(dateTimeString, "Z");
+        dateTimeString[strlen(dateTimeString) - 1] = 'Z';
+        strcat(dateTimeString, "\n");
     }
     
     return dateTimeString;
@@ -689,7 +690,7 @@ DateTime* createDateTime(char* inputString) {
 
     if (inputString[strlen(inputString) - 1] == 'Z') {
         dateTime->UTC = true;
-        inputString[strlen(inputString)] = '\0'; // remove the Z
+        inputString[strlen(inputString) - 1] = '\0'; // remove the Z
     }
 
     if (inputString[0] == 'T') {
