@@ -422,8 +422,7 @@ char* dateToString(void* date) {
 
     if (dateTime->UTC) {
         dateTimeString = (char*)realloc(dateTimeString, strlen(dateTimeString) + 2);
-        dateTimeString[strlen(dateTimeString) - 1] = 'Z';
-        strcat(dateTimeString, "\n");
+        strcat(dateTimeString, "Z");
     }
     
     return dateTimeString;
@@ -548,11 +547,6 @@ Property* createProperty(Card* card, const char* stringToParse) {
     // get values
     if (strcasecmp(propertyName, "FN") == 0) {
         char* token = strtok(valueString, ";"); // get the first value
-        if (token == NULL) {
-            free(propertyString);
-            deleteProperty(newProperty);
-            return NULL;
-        }
         newProperty->name = (char*)malloc(strlen(propertyName) + 1);
         strcpy(newProperty->name, propertyName);
         char* value = (char*)malloc(strlen(token) + 1);
@@ -695,7 +689,7 @@ DateTime* createDateTime(char* inputString) {
 
     if (inputString[strlen(inputString) - 1] == 'Z') {
         dateTime->UTC = true;
-        inputString[strlen(inputString) - 1] = '\0'; // remove the Z
+        inputString[strlen(inputString)] = '\0'; // remove the Z
     }
 
     if (inputString[0] == 'T') {
