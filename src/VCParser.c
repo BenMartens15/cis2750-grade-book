@@ -326,7 +326,7 @@ VCardErrorCode validateCard(const Card* obj) {
         ListIterator paramIter = createIterator(property->parameters);
         while((paramElement = nextElement(&paramIter)) != NULL) {
             Parameter* param = (Parameter*)paramElement;
-            if (strlen(param->name) == 0 || strlen(param->value) == 0) {
+            if (param->name == NULL || param->value == NULL || strlen(param->name) == 0 || strlen(param->value) == 0) {
                 return INV_PROP;
             }
         }
@@ -346,7 +346,6 @@ VCardErrorCode validateCard(const Card* obj) {
                 strcasecmp(property->name, "FN") == 0 ||
                 strcasecmp(property->name, "NICKNAME") == 0 ||
                 strcasecmp(property->name, "PHOTO") == 0 ||
-                strcasecmp(property->name, "TEL") == 0 ||
                 strcasecmp(property->name, "EMAIL") == 0 ||
                 strcasecmp(property->name, "IMPP") == 0 ||
                 strcasecmp(property->name, "LANG") == 0 ||
@@ -369,22 +368,22 @@ VCardErrorCode validateCard(const Card* obj) {
                 return INV_PROP;
             }
         } else if (strcasecmp(property->name, "KIND") == 0) {
-            if (kindCounter > 0) {
+            if (kindCounter > 0 || getLength(property->values) != 1) {
                 return INV_PROP;
             }
             kindCounter++;
         } else if (strcasecmp(property->name, "PRODID") == 0) {
-            if (prodidCounter > 0) {
+            if (prodidCounter > 0 || getLength(property->values) != 1) {
                 return INV_PROP;
             }
             prodidCounter++;
         } else if (strcasecmp(property->name, "REV") == 0) {
-            if (revCounter > 0) {
+            if (revCounter > 0 || getLength(property->values) != 1) {
                 return INV_PROP;
             }
             revCounter++;
         } else if (strcasecmp(property->name, "UID") == 0) {
-            if (uidCounter > 0) {
+            if (uidCounter > 0 || getLength(property->values) != 1) {
                 return INV_PROP;
             }
             uidCounter++;
@@ -412,7 +411,8 @@ VCardErrorCode validateCard(const Card* obj) {
             if (getLength(property->values) != 7) {
                 return INV_PROP;
             }
-        } else if (strcasecmp(property->name, "ORG") == 0) { // ORG can have 1 or more values
+        } else if (strcasecmp(property->name, "ORG") == 0 ||
+                strcasecmp(property->name, "TEL") == 0) { // ORG and TEL can have 1 or more values
             if (getLength(property->values) == 0) {
                 return INV_PROP;
             }

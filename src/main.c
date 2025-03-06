@@ -6,10 +6,10 @@ int main() {
     VCardErrorCode error;
 
     error = createCard("../testCard.vcf", &testCard);
+    error = validateCard(testCard); 
     if (error == OK) {
         char* cardString = cardToString(testCard);
         printf("%s\n", cardString);
-        //writeCard("testOut.vcf", testCard);
         free(cardString);
         deleteCard(testCard);
     } else {
