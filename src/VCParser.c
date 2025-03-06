@@ -548,6 +548,11 @@ Property* createProperty(Card* card, const char* stringToParse) {
     // get values
     if (strcasecmp(propertyName, "FN") == 0) {
         char* token = strtok(valueString, ";"); // get the first value
+        if (token == NULL) {
+            free(propertyString);
+            deleteProperty(newProperty);
+            return NULL;
+        }
         newProperty->name = (char*)malloc(strlen(propertyName) + 1);
         strcpy(newProperty->name, propertyName);
         char* value = (char*)malloc(strlen(token) + 1);
