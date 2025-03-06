@@ -252,6 +252,7 @@ VCardErrorCode writeCard(const char* fileName, const Card* obj) {
             strcat(cardString, birthday);
         }
         cardString[strlen(cardString) - 1] = '\r'; // replace the newline character with a carriage return
+        cardString = (char*)realloc(cardString, strlen(cardString) + 2); // make room for the newline character
         strcat(cardString, "\n"); // add back the newline character after the carriage return
     }
     if (anniversary) {
@@ -265,6 +266,7 @@ VCardErrorCode writeCard(const char* fileName, const Card* obj) {
             strcat(cardString, anniversary);
         }
         cardString[strlen(cardString) - 1] = '\r'; // replace the newline character with a carriage return
+        cardString = (char*)realloc(cardString, strlen(cardString) + 2); // make room for the newline character
         strcat(cardString, "\n"); // add back the newline character after the carriage return
     }
     cardString = (char*)realloc(cardString, strlen(cardString) + strlen(optionalProperties) + 1);
