@@ -6,7 +6,9 @@ int main() {
     VCardErrorCode error;
 
     error = createCard("../testCard.vcf", &testCard);
+    error = validateCard(testCard); 
     if (error == OK) {
+        writeCard("testOut.vcf", testCard);
         char* cardString = cardToString(testCard);
         printf("%s\n", cardString);
         free(cardString);

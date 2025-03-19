@@ -7,6 +7,7 @@ static ssize_t readNextLine(char** currentLine, char** nextLine, FILE* fp, size_
 static Property* createProperty(Card* card, const char* currentLine);
 static void parsePropertyValues(List* valueList, const char* name, char* valueString);
 static DateTime* createDateTime(char* inputString);
+static bool validateDateTime(DateTime* dateTime);
 
 // ************* Card parser ***********************************************
 VCardErrorCode createCard(char* fileName, Card** obj) {
@@ -129,14 +130,26 @@ char* cardToString(const Card* obj) {
     cardString = (char*)malloc(strlen(fullName) + 1);
     strcpy(cardString, fullName);
     if (birthday) {
-        cardString = (char*)realloc(cardString, strlen(cardString) + 5 + strlen(birthday) + 1);
-        strcat(cardString, "BDAY:");
-        strcat(cardString, birthday);
+        if (obj->birthday->isText) {
+            cardString = (char*)realloc(cardString, strlen(cardString) + 16 + strlen(birthday) + 1);
+            strcat(cardString, "BDAY;VALUE=text:");
+            strcat(cardString, birthday);
+        } else {
+            cardString = (char*)realloc(cardString, strlen(cardString) + 5 + strlen(birthday) + 1);
+            strcat(cardString, "BDAY:");
+            strcat(cardString, birthday);
+        }
     }
     if (anniversary) {
-        cardString = (char*)realloc(cardString, strlen(cardString) + 13 + strlen(anniversary) + 1);
-        strcat(cardString, "ANNIVERSARY:");
-        strcat(cardString, anniversary);
+        if (obj->anniversary->isText) {
+            cardString = (char*)realloc(cardString, strlen(cardString) + 23 + strlen(anniversary) + 1);
+            strcat(cardString, "ANNIVERSARY;VALUE=text:");
+            strcat(cardString, anniversary);
+        } else {
+            cardString = (char*)realloc(cardString, strlen(cardString) + 12 + strlen(anniversary) + 1);
+            strcat(cardString, "ANNIVERSARY:");
+            strcat(cardString, anniversary);
+        }
     }
     cardString = (char*)realloc(cardString, strlen(cardString) + strlen(optionalProperties) + 1);
     strcat(cardString, optionalProperties);
@@ -189,6 +202,228 @@ char* errorToString(VCardErrorCode err) {
     }
     
     return err_string;
+}
+
+VCardErrorCode writeCard(const char* fileName, const Card* obj) {
+    FILE* fp;
+    char* cardString = NULL;
+    char* fullName = NULL;
+    char* birthday = NULL;
+    char* anniversary = NULL;
+    char* optionalProperties = NULL;
+    
+    if (obj == NULL) {
+        return WRITE_ERROR;
+    }
+
+    if (fileName == NULL) {
+        return WRITE_ERROR;
+    }
+
+    // check the file extension
+    char* extension = strrchr(fileName, '.');
+    if (extension == NULL || (strcmp(extension, ".vcf") != 0 && strcmp(extension, ".vcard") != 0)) {
+        return WRITE_ERROR;
+    }
+
+    fp = fopen(fileName, "w");
+    if (fp == NULL) {
+        return WRITE_ERROR;
+    }
+
+    fullName = propertyToString(obj->fn);
+    birthday = dateToString(obj->birthday);
+    anniversary = dateToString(obj->anniversary);
+    optionalProperties = toString(obj->optionalProperties);
+
+    cardString = (char*)malloc(27);
+    strcpy(cardString, "BEGIN:VCARD\r\nVERSION:4.0\r\n");
+
+    cardString = (char*)realloc(cardString, strlen(cardString) + strlen(fullName) + 1);
+    strcat(cardString, fullName);
+    if (birthday) {
+        if (obj->birthday->isText) {
+            cardString = (char*)realloc(cardString, strlen(cardString) + 16 + strlen(birthday) + 1);
+            strcat(cardString, "BDAY;VALUE=text:");
+            strcat(cardString, birthday);
+        } else {
+            cardString = (char*)realloc(cardString, strlen(cardString) + 5 + strlen(birthday) + 1);
+            strcat(cardString, "BDAY:");
+            strcat(cardString, birthday);
+        }
+        cardString[strlen(cardString) - 1] = '\r'; // replace the newline character with a carriage return
+        cardString = (char*)realloc(cardString, strlen(cardString) + 2); // make room for the newline character
+        strcat(cardString, "\n"); // add back the newline character after the carriage return
+    }
+    if (anniversary) {
+        if (obj->anniversary->isText) {
+            cardString = (char*)realloc(cardString, strlen(cardString) + 23 + strlen(anniversary) + 1);
+            strcat(cardString, "ANNIVERSARY;VALUE=text:");
+            strcat(cardString, anniversary);
+        } else {
+            cardString = (char*)realloc(cardString, strlen(cardString) + 12 + strlen(anniversary) + 1);
+            strcat(cardString, "ANNIVERSARY:");
+            strcat(cardString, anniversary);
+        }
+        cardString[strlen(cardString) - 1] = '\r'; // replace the newline character with a carriage return
+        cardString = (char*)realloc(cardString, strlen(cardString) + 2); // make room for the newline character
+        strcat(cardString, "\n"); // add back the newline character after the carriage return
+    }
+    cardString = (char*)realloc(cardString, strlen(cardString) + strlen(optionalProperties) + 1);
+    strcat(cardString, optionalProperties);
+
+    cardString = (char*)realloc(cardString, strlen(cardString) + 12); // make room for "END:VCARD\r\n"
+    strcat(cardString, "END:VCARD\r\n");
+
+    fputs(cardString, fp); // write the string to the file
+
+    free(fullName);
+    free(birthday);
+    free(anniversary);
+    free(optionalProperties);
+    free(cardString);
+    fclose(fp);
+
+    return OK;
+}
+
+VCardErrorCode validateCard(const Card* obj) {
+    if (obj == NULL ||
+            obj->fn == NULL ||
+            obj->optionalProperties == NULL) {
+        return INV_CARD;
+    }
+
+    if (obj->birthday != NULL && !validateDateTime(obj->birthday)) {
+        return INV_DT;
+    }
+
+    if (obj->anniversary != NULL && !validateDateTime(obj->anniversary)) {
+        return INV_DT;
+    }
+
+    // counters for all properties with cardinality of *1 (exactly one instance may be present)
+    int kindCounter = 0;
+    int nCounter = 0;
+    int genderCounter = 0;
+    int prodidCounter = 0;
+    int revCounter = 0;
+    int uidCounter = 0;
+
+    void* propElement;
+    ListIterator propertyIterator = createIterator(obj->optionalProperties);
+    while ((propElement = nextElement(&propertyIterator)) != NULL) {
+        Property* property = (Property*)propElement;
+
+        // make sure all required properties are present
+        if (property->name == NULL ||
+                property->group == NULL ||
+                property->parameters == NULL ||
+                property->values == NULL) {
+            return INV_PROP;
+        }
+
+        // make sure no parameters are empty strings
+        void* paramElement;
+        ListIterator paramIter = createIterator(property->parameters);
+        while((paramElement = nextElement(&paramIter)) != NULL) {
+            Parameter* param = (Parameter*)paramElement;
+            if (param->name == NULL || param->value == NULL || strlen(param->name) == 0 || strlen(param->value) == 0) {
+                return INV_PROP;
+            }
+        }
+
+        if (strcasecmp(property->name, "VERSION") == 0) {
+            return INV_CARD;
+        }
+
+        if (strcasecmp(property->name, "BEGIN") == 0 || // all properties that have a cardinality of 1
+                strcasecmp(property->name, "END") == 0 ||
+                strcasecmp(property->name, "BDAY") == 0 ||
+                strcasecmp(property->name, "ANNIVERSARY") == 0) {
+            // already checked above, so if present in the optional properties, invalid
+            return INV_PROP;
+        } else if (strcasecmp(property->name, "SOURCE") == 0 || // all properties that require a single value
+                strcasecmp(property->name, "XML") == 0 ||
+                strcasecmp(property->name, "FN") == 0 ||
+                strcasecmp(property->name, "NICKNAME") == 0 ||
+                strcasecmp(property->name, "PHOTO") == 0 ||
+                strcasecmp(property->name, "EMAIL") == 0 ||
+                strcasecmp(property->name, "IMPP") == 0 ||
+                strcasecmp(property->name, "LANG") == 0 ||
+                strcasecmp(property->name, "TZ") == 0 ||
+                strcasecmp(property->name, "GEO") == 0 ||
+                strcasecmp(property->name, "TITLE") == 0 ||
+                strcasecmp(property->name, "ROLE") == 0 ||
+                strcasecmp(property->name, "LOGO") == 0 ||
+                strcasecmp(property->name, "MEMBER") == 0 ||
+                strcasecmp(property->name, "RELATED") == 0 ||
+                strcasecmp(property->name, "CATEGORIES") == 0 ||
+                strcasecmp(property->name, "NOTE") == 0 ||
+                strcasecmp(property->name, "SOUND") == 0 ||
+                strcasecmp(property->name, "URL") == 0 ||
+                strcasecmp(property->name, "KEY") == 0 ||
+                strcasecmp(property->name, "FBURL") == 0 ||
+                strcasecmp(property->name, "CALADRURI") == 0 ||
+                strcasecmp(property->name, "CALURI") == 0) {
+            if (getLength(property->values) != 1) {
+                return INV_PROP;
+            }
+        } else if (strcasecmp(property->name, "KIND") == 0) {
+            if (kindCounter > 0 || getLength(property->values) != 1) {
+                return INV_PROP;
+            }
+            kindCounter++;
+        } else if (strcasecmp(property->name, "PRODID") == 0) {
+            if (prodidCounter > 0 || getLength(property->values) != 1) {
+                return INV_PROP;
+            }
+            prodidCounter++;
+        } else if (strcasecmp(property->name, "REV") == 0) {
+            if (revCounter > 0 || getLength(property->values) != 1) {
+                return INV_PROP;
+            }
+            revCounter++;
+        } else if (strcasecmp(property->name, "UID") == 0) {
+            if (uidCounter > 0 || getLength(property->values) != 1) {
+                return INV_PROP;
+            }
+            uidCounter++;
+        } else if (strcasecmp(property->name, "GENDER") == 0) {
+            if (genderCounter > 0) {
+                return INV_PROP;
+            }
+            genderCounter++;
+            if (getLength(property->values) != 1 && getLength(property->values) != 2) {
+                return INV_PROP;
+            }
+        } else if (strcasecmp(property->name, "CLIENTPIDMAP") == 0) {
+            if (getLength(property->values) != 2) {
+                return INV_PROP;
+            }
+        }  else if (strcasecmp(property->name, "N") == 0) {
+            if (nCounter > 0) {
+                return INV_PROP;
+            }
+            nCounter++;
+            if (getLength(property->values) != 5) {
+                return INV_PROP;
+            }
+        } else if (strcasecmp(property->name, "ADR") == 0) {
+            if (getLength(property->values) != 7) {
+                return INV_PROP;
+            }
+        } else if (strcasecmp(property->name, "ORG") == 0 ||
+                strcasecmp(property->name, "TEL") == 0) { // ORG and TEL can have 1 or more values
+            if (getLength(property->values) == 0) {
+                return INV_PROP;
+            }
+        } else { // property is not in the list of properties in 6.1 - 6.9.3 in the vCard specification
+            return INV_PROP;
+        }
+    }
+
+    return OK;
 }
 // *************************************************************************
 
@@ -292,7 +527,9 @@ char* propertyToString(void* prop) {
         strcat(propertyString, property->values->printData(value));
         strcat(propertyString, ";");
     }
-    propertyString[strlen(propertyString) - 1] = '\n';
+    propertyString = (char*)realloc(propertyString, strlen(propertyString) + 2); // make room for the \r
+    propertyString[strlen(propertyString) - 1] = '\r'; // replace the last ';' with '\r' (just used for writing back to a file)
+    strcat(propertyString, "\n"); // add the newline
 
     return propertyString;
 }
@@ -408,8 +645,9 @@ char* dateToString(void* date) {
 
     size_t length;
     if (dateTime->isText) {
-        dateTimeString = (char*)malloc(strlen(dateTime->text) + 1);
+        dateTimeString = (char*)malloc(strlen(dateTime->text) + 2);
         strcpy(dateTimeString, dateTime->text);
+        strcat(dateTimeString, "\n");
     } else if (strlen(dateTime->time) > 0) {
         length = strlen(dateTime->date) + 1 + strlen(dateTime->time) + 1;
         dateTimeString = (char*)malloc(length + 1);
@@ -716,5 +954,25 @@ DateTime* createDateTime(char* inputString) {
     }
 
     return dateTime;
+}
+
+bool validateDateTime(DateTime* dateTime) {
+    if (dateTime->date == NULL || dateTime->time == NULL || dateTime->text == NULL) {
+        return false;
+    } 
+
+    if (dateTime->UTC && dateTime->isText) {
+        return false;
+    }
+
+    if (dateTime->isText && (strlen(dateTime->date) > 0 || strlen(dateTime->time) > 0)) {
+        return false;
+    }
+
+    if (!dateTime->isText && strlen(dateTime->text) > 0) {
+        return false;
+    }
+
+    return true;
 }
 // **************************************************************************
