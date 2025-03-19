@@ -1,0 +1,117 @@
+from asciimatics.widgets import Frame, ListBox, Layout, Button, Divider, Text, \
+    TextBox, Widget
+from asciimatics.scene import Scene
+from asciimatics.screen import Screen
+from asciimatics.exceptions import ResizeScreenError, NextScene, StopApplication
+import sys
+
+class ContactModel():
+    def __init__(self):
+        self._contacts = list()
+
+    def get_summary(self):
+        if not self._contacts:
+            self._contacts.append(("Ben Martens", 0))
+            self._contacts.append(("Test Contact", 1))
+        return self._contacts
+
+
+class ListView(Frame):
+    def __init__(self, screen, model):
+        super(ListView, self).__init__(screen,
+                                       screen.height * 2 // 3,
+                                       screen.width * 2 // 3,
+                                       on_load=self._reload_list,
+                                       hover_focus=True,
+                                       can_scroll=False,
+                                       title="Contact List")
+        # Save off the model that accesses the contacts database.
+        self._model = model
+
+        self.palette = {
+            "background": (Screen.COLOUR_DEFAULT, Screen.A_NORMAL, 251),
+            "borders": (Screen.COLOUR_BLACK, Screen.A_NORMAL, 251),
+            "button": (Screen.COLOUR_BLACK, Screen.A_NORMAL, 251),
+            "control": (Screen.COLOUR_DEFAULT, Screen.A_NORMAL, Screen.COLOUR_DEFAULT),
+            "disabled": (Screen.COLOUR_DEFAULT, Screen.A_NORMAL, Screen.COLOUR_DEFAULT),
+            "edit_text": (Screen.COLOUR_DEFAULT, Screen.A_NORMAL, Screen.COLOUR_DEFAULT),
+            "field": (Screen.COLOUR_BLACK, Screen.A_NORMAL, 251),
+            "focus_button": (251, Screen.A_NORMAL, Screen.COLOUR_RED),
+            "focus_control": (Screen.COLOUR_DEFAULT, Screen.A_NORMAL, Screen.COLOUR_DEFAULT),
+            "focus_edit_text": (Screen.COLOUR_DEFAULT, Screen.A_NORMAL, Screen.COLOUR_DEFAULT),
+            "focus_field": (Screen.COLOUR_BLACK, Screen.A_NORMAL, 251),
+            "invalid": (Screen.COLOUR_DEFAULT, Screen.A_NORMAL, Screen.COLOUR_DEFAULT),
+            "label": (Screen.COLOUR_DEFAULT, Screen.A_NORMAL, Screen.COLOUR_DEFAULT),
+            "scroll": (Screen.COLOUR_DEFAULT, Screen.A_NORMAL, Screen.COLOUR_DEFAULT),
+            "selected_control": (Screen.COLOUR_DEFAULT, Screen.A_NORMAL, Screen.COLOUR_DEFAULT),
+            "selected_field": (251, Screen.A_NORMAL, Screen.COLOUR_RED),
+            "selected_focus_control": (Screen.COLOUR_DEFAULT, Screen.A_NORMAL, Screen.COLOUR_DEFAULT),
+            "selected_focus_field": (251, Screen.A_NORMAL, Screen.COLOUR_RED),
+            "title": (Screen.COLOUR_RED, Screen.A_BOLD, 251)
+        }
+
+        # Create the form for displaying the list of contacts.
+        self._list_view = ListBox(
+            Widget.FILL_FRAME,
+            model.get_summary(),
+            name="contacts",
+            add_scroll_bar=True,
+            on_change=self._on_pick,
+            on_select=self._edit)
+        self._edit_button = Button("Edit", self._edit)
+        self._delete_button = Button("Delete", self._delete)
+        layout = Layout([100], fill_frame=True)
+        self.add_layout(layout)
+        layout.add_widget(self._list_view)
+        layout.add_widget(Divider())
+        layout2 = Layout([1, 1, 1, 1])
+        self.add_layout(layout2)
+        layout2.add_widget(Button("Add", self._add), 0)
+        layout2.add_widget(self._edit_button, 1)
+        layout2.add_widget(self._delete_button, 2)
+        layout2.add_widget(Button("Quit", self._quit), 3)
+        self.fix()
+        self._on_pick()
+
+    def _on_pick(self):
+        self._edit_button.disabled = self._list_view.value is None
+        self._delete_button.disabled = self._list_view.value is None
+
+    def _reload_list(self, new_value=None):
+        self._list_view.options = self._model.get_summary()
+        self._list_view.value = new_value
+
+    def _add(self):
+        self._model.current_id = None
+        raise NextScene("Edit Contact")
+
+    def _edit(self):
+        self.save()
+        self._model.current_id = self.data["contacts"]
+        raise NextScene("Edit Contact")
+
+    def _delete(self):
+        self.save()
+        self._model.delete_contact(self.data["contacts"])
+        self._reload_list()
+
+    @staticmethod
+    def _quit():
+        raise StopApplication("User pressed quit")
+
+def demo(screen, scene):
+    scenes = [
+        Scene([ListView(screen, contacts)], -1, name="Main"),
+    ]
+
+    screen.play(scenes, stop_on_resize=True, start_scene=scene, allow_int=True)
+
+
+contacts = ContactModel()
+last_scene = None
+while True:
+    try:
+        Screen.wrapper(demo, catch_interrupt=True, arguments=[last_scene])
+        sys.exit(0)
+    except ResizeScreenError as e:
+        last_scene = e.scene
