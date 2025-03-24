@@ -5,6 +5,9 @@ from asciimatics.scene import Scene
 from asciimatics.screen import Screen
 from asciimatics.exceptions import ResizeScreenError, NextScene, StopApplication
 import sys
+from ctypes import *
+from os import listdir
+from Card import Card, List
 
 RED_AND_GREY = {
     "background": (Screen.COLOUR_DEFAULT, Screen.A_BOLD, 251),
@@ -28,27 +31,80 @@ RED_AND_GREY = {
     "title": (Screen.COLOUR_RED, Screen.A_BOLD, 251)
 }
 
-class ContactModel():
+class VCardModel():
     def __init__(self):
-        self._contacts = list()
+        self.parser_lib = CDLL("./libvcparser.so")
+        self._vcard_files = list()
 
     def add(self, contact):
         pass
 
-    def get_summary(self):
-        if not self._contacts:
-            self._contacts.append(("Ben Martens", 0))
-            self._contacts.append(("Test Contact", 1))
-        return self._contacts
+    def get_cards(self):
+        self._vcard_files.clear()
+        file_list = listdir("./cards/")
 
-    def get_contact(self, contact_id):
-        pass
+        createCard = self.parser_lib.createCard
+        createCard.argtypes = [c_char_p, POINTER(POINTER(Card))]
+        createCard.restype = c_int
 
-    def get_current_contact(self):
+        validateCard = self.parser_lib.validateCard
+        validateCard.argtypes = [POINTER(Card)]
+        validateCard.restype = c_int
+
+        file_id = 0
+        cards = []
+        for file in file_list:
+            card_pointer = POINTER(Card)()
+
+            error = createCard(str.encode("./cards/" + file), byref(card_pointer))
+            if (error != 0):
+                continue
+            
+            error = validateCard(card_pointer)
+            if (error != 0):
+                continue
+
+            cards.append(card_pointer.contents)
+            self._vcard_files.append((file, file_id))
+            file_id += 1
+
+        return self._vcard_files
+
+    def get_card_details(self, card_id): # returns a dictionary with keys "file_name", "full_name", "birthday", "anniversary", and "other_properties"
+        createCard = self.parser_lib.createCard
+        createCard.argtypes = [c_char_p, POINTER(POINTER(Card))]
+        createCard.restype = c_int
+
+        dateToString = self.parser_lib.dateToString
+        dateToString.argtypes = [c_void_p]
+        dateToString.restype = c_char_p
+
+        getFromFront = self.parser_lib.getFromFront
+        getFromFront.argtypes = [POINTER(List)]
+        getFromFront.restype = c_void_p
+
+        card_pointer = POINTER(Card)()
+        file_name = self._vcard_files[card_id][0]
+        createCard(str.encode("./cards/" + file_name), byref(card_pointer))
+
+        full_name = cast(getFromFront(card_pointer.contents.fn.contents.values), c_char_p).value.decode('utf-8')
+        bday = dateToString(card_pointer.contents.birthday)
+        if bday is not None:  
+            bday = bday.decode('utf-8')
+            bday = bday[:-1] # remove the \n
+        anniversary = dateToString(card_pointer.contents.anniversary)
+        if anniversary is not None:
+            anniversary = anniversary.decode('utf-8')
+            anniversary = anniversary[:-1] # remove the \n
+        other_properties = card_pointer.contents.optionalProperties.contents.length
+
+        return {"file_name": file_name, "full_name": full_name, "birthday": bday, "anniversary": anniversary, "other_properties": str(other_properties)}
+
+    def get_current_card(self):
         if self.current_id is None:
-            return {"name": "", "address": "", "phone": "", "email": "", "notes": ""}
+            return {"file_name": "", "full_name": "", "birthday": "", "anniversary": "", "other_properties": "0"}
         else:
-            return {"name": "", "address": "", "phone": "", "email": "", "notes": ""}
+            return self.get_card_details(self.current_id)
 
     def update_current_contact(self, details):
         pass
@@ -65,17 +121,17 @@ class ListView(Frame):
                                        on_load=self._reload_list,
                                        hover_focus=True,
                                        can_scroll=False,
-                                       title="Contact List")
+                                       title="vCard List")
         # Save off the model that accesses the contacts database.
         self._model = model
 
         self.set_theme("red_and_grey")
 
-        # Create the form for displaying the list of contacts.
+        # Create the form for displaying the list of vCard files.
         self._list_view = ListBox(
             Widget.FILL_FRAME,
-            model.get_summary(),
-            name="contacts",
+            model.get_cards(),
+            name="cards",
             add_scroll_bar=True,
             on_change=self._on_pick,
             on_select=self._edit)
@@ -99,21 +155,21 @@ class ListView(Frame):
         self._delete_button.disabled = self._list_view.value is None
 
     def _reload_list(self, new_value=None):
-        self._list_view.options = self._model.get_summary()
+        self._list_view.options = self._model.get_cards()
         self._list_view.value = new_value
 
     def _add(self):
         self._model.current_id = None
-        raise NextScene("Edit Contact")
+        raise NextScene("vCard Details")
 
     def _edit(self):
         self.save()
-        self._model.current_id = self.data["contacts"]
-        raise NextScene("Edit Contact")
+        self._model.current_id = self.data["cards"]
+        raise NextScene("vCard Details")
 
     def _delete(self):
         self.save()
-        self._model.delete_contact(self.data["contacts"])
+        self._model.delete_contact(self.data["cards"])
         self._reload_list()
 
     @staticmethod
@@ -121,14 +177,14 @@ class ListView(Frame):
         raise StopApplication("User pressed quit")
 
 
-class ContactView(Frame):
+class DetailsView(Frame):
     def __init__(self, screen, model):
-        super(ContactView, self).__init__(screen,
+        super(DetailsView, self).__init__(screen,
                                           screen.height * 2 // 3,
                                           screen.width * 2 // 3,
                                           hover_focus=True,
                                           can_scroll=False,
-                                          title="Contact Details",
+                                          title="vCard Details",
                                           reduce_cpu=True)
         # Save off the model that accesses the contacts database.
         self._model = model
@@ -151,8 +207,8 @@ class ContactView(Frame):
 
     def reset(self):
         # Do standard reset to clear out form, then populate with new data.
-        super(ContactView, self).reset()
-        self.data = self._model.get_current_contact()
+        super(DetailsView, self).reset()
+        self.data = self._model.get_current_card()
 
     def _ok(self):
         self.save()
@@ -164,21 +220,21 @@ class ContactView(Frame):
         raise NextScene("Main")
 
 
-def demo(screen, scene):
+def main_screen(screen, scene):
     scenes = [
-        Scene([ListView(screen, contacts)], -1, name="Main"),
-        Scene([ContactView(screen, contacts)], -1, name="Edit Contact")
+        Scene([ListView(screen, contacts)], -1, name="vCard List"),
+        Scene([DetailsView(screen, contacts)], -1, name="vCard Details")
     ]
 
     screen.play(scenes, stop_on_resize=True, start_scene=scene, allow_int=True)
 
 
-contacts = ContactModel()
+contacts = VCardModel()
 last_scene = None
 THEMES["red_and_grey"] = RED_AND_GREY
 while True:
     try:
-        Screen.wrapper(demo, catch_interrupt=True, arguments=[last_scene])
+        Screen.wrapper(main_screen, catch_interrupt=True, arguments=[last_scene])
         sys.exit(0)
     except ResizeScreenError as e:
         last_scene = e.scene
