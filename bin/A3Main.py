@@ -109,14 +109,14 @@ class VCardModel():
         self.createCard(str.encode("./cards/" + file_name), byref(card_pointer))
 
         full_name = cast(self.getFromFront(card_pointer.contents.fn.contents.values), c_char_p).value.decode('utf-8')
-        bday = self.dateToString(card_pointer.contents.birthday)
-        if bday is not None:  
-            bday = bday.decode('utf-8')
-            bday = bday[:-1] # remove the \n
-        anniversary = self.dateToString(card_pointer.contents.anniversary)
-        if anniversary is not None:
-            anniversary = anniversary.decode('utf-8')
-            anniversary = anniversary[:-1] # remove the \n
+        if card_pointer.contents.birthday:
+            bday = self.__date_to_string(card_pointer.contents.birthday.contents)
+        else:
+            bday = ""
+        if card_pointer.contents.anniversary:
+            anniversary = self.__date_to_string(card_pointer.contents.anniversary.contents)
+        else:
+            anniversary = ""
         other_properties = card_pointer.contents.optionalProperties.contents.length
 
         return {"file_name": file_name, "full_name": full_name, "birthday": bday, "anniversary": anniversary, "other_properties": str(other_properties)}
@@ -145,6 +145,19 @@ class VCardModel():
     def delete_card(self, card_id):
         pathlib.Path.unlink("./cards/" + self._vcard_files[card_id])
         del self._vcard_files[card_id]
+
+    def __date_to_string(self, date):
+        if date.isText:
+            date_string = date.text.decode('utf-8')
+        elif date.time:
+            date_string = "Date: " + date.date.decode('utf-8') + " Time: " + date.time.decode('utf-8')
+        else:
+            date_string = "Date: " + date.date.decode('utf-8')
+
+        if date.UTC:
+            date_string += "(UTC)"
+
+        return date_string
 
 
 class ListView(Frame):
