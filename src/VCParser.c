@@ -97,6 +97,31 @@ EXIT:
     return error;
 }
 
+VCardErrorCode createEmptyCard(Card** obj) {
+    Card* newCard = NULL;
+    Property* fnProperty = NULL;
+    
+    if (obj == NULL) {
+        return OTHER_ERROR;
+    }
+
+    *obj = (Card*)malloc(sizeof(Card));
+    newCard = *obj;
+    newCard->optionalProperties = initializeList(propertyToString, deleteProperty, compareProperties);
+    newCard->birthday = NULL;
+    newCard->anniversary = NULL;
+
+    fnProperty = (Property*)malloc(sizeof(Property));
+    fnProperty->name = "FN";
+    fnProperty->group = NULL;
+    fnProperty->parameters = initializeList(parameterToString, deleteParameter, compareParameters);
+    fnProperty->values = initializeList(valueToString, deleteValue, compareValues);
+
+    newCard->fn = fnProperty;
+
+    return OK;
+}
+
 void deleteCard(Card* obj) {
     if (obj == NULL) {
         return;

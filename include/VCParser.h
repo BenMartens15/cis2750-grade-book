@@ -101,6 +101,7 @@ typedef struct vCard {
 
 // ************* Card parser functions - MUST be implemented ***************
 VCardErrorCode createCard(char* fileName, Card** obj);
+VCardErrorCode createEmptyCard(Card** obj);
 void deleteCard(Card* obj);
 char* cardToString(const Card* obj);
 char* errorToString(VCardErrorCode err);

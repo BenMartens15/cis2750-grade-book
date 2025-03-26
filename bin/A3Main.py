@@ -6,7 +6,7 @@ from asciimatics.exceptions import ResizeScreenError, NextScene, StopApplication
 import sys
 from ctypes import *
 from os import listdir
-from Card import Card, List
+from Card import Card, List, Property
 import pathlib
 
 RED_AND_GREY_THEME = {
@@ -43,6 +43,10 @@ class VCardModel():
         self.createCard.argtypes = [c_char_p, POINTER(POINTER(Card))]
         self.createCard.restype = c_int
 
+        self.createEmptyCard = self.parser_lib.createEmptyCard
+        self.createEmptyCard.argtypes = [POINTER(POINTER(Card))]
+        self.createEmptyCard.restype = c_int
+
         self.validateCard = self.parser_lib.validateCard
         self.validateCard.argtypes = [POINTER(Card)]
         self.validateCard.restype = c_int
@@ -67,8 +71,14 @@ class VCardModel():
         self.writeCard.argtypes = [c_char_p, POINTER(Card)]
         self.writeCard.restype = c_int
 
-    def create(self, contact):
-        pass
+    def create(self, details):
+        card_pointer = POINTER(Card)()
+        self.createEmptyCard(byref(card_pointer))
+        full_name_pointer = create_string_buffer(str.encode(details["full_name"]))
+        self.insertFront(card_pointer.contents.fn.contents.values, full_name_pointer)
+        self.writeCard(str.encode("./cards/" + details["file_name"]), card_pointer)
+        card_id = max(self._vcard_files, key=self._vcard_files.get) + 1
+        self._vcard_files[card_id] = details["file_name"]
 
     def get_cards(self):
         self._vcard_files.clear()
