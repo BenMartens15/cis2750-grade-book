@@ -15,7 +15,7 @@ RED_AND_GREY_THEME = {
     "borders": (Screen.COLOUR_BLACK, Screen.A_BOLD, 251),
     "button": (Screen.COLOUR_BLACK, Screen.A_BOLD, 251),
     "control": (Screen.COLOUR_DEFAULT, Screen.A_BOLD, Screen.COLOUR_DEFAULT),
-    "disabled": (Screen.COLOUR_DEFAULT, Screen.A_BOLD, Screen.COLOUR_DEFAULT),
+    "disabled": (Screen.COLOUR_BLACK, Screen.A_BOLD, 251),
     "edit_text": (Screen.COLOUR_BLACK, Screen.A_BOLD, 251),
     "field": (Screen.COLOUR_BLACK, Screen.A_BOLD, 251),
     "focus_button": (251, Screen.A_BOLD, Screen.COLOUR_RED),
@@ -219,9 +219,9 @@ class DetailsView(Frame):
         self.add_layout(layout)
         layout.add_widget(Text("File Name:", "file_name"))
         layout.add_widget(Text("Contact:", "full_name"))
-        layout.add_widget(Text("Birthday:", "birthday"))
-        layout.add_widget(Text("Anniversary:", "anniversary"))
-        layout.add_widget(Text("Other Properties:", "other_properties"))
+        layout.add_widget(Text("Birthday:", "birthday", disabled=True))
+        layout.add_widget(Text("Anniversary:", "anniversary", disabled=True))
+        layout.add_widget(Text("Other Properties:", "other_properties", disabled=True))
         layout2 = Layout([1, 1, 1, 1])
         self.add_layout(layout2)
         layout2.add_widget(Button("OK", self._ok), 0)
@@ -232,6 +232,12 @@ class DetailsView(Frame):
         # Do standard reset to clear out form, then populate with new data.
         super(DetailsView, self).reset()
         self.data = self._model.get_current_card()
+        if self.data["file_name"]: # existing contact being edited - only full name is editable
+            self.switch_focus(0, 0, 1) # set focus to full name
+            self._layouts[0]._columns[0][0].disabled = True
+        else: # adding a new contact - file name and full name are editable
+            self.switch_focus(0, 0, 0) # set focus to file name
+            self._layouts[0]._columns[0][0].disabled = False
 
     def _ok(self):
         self.save()
