@@ -1,5 +1,4 @@
-from asciimatics.widgets import Frame, ListBox, Layout, Button, Divider, Text, \
-    TextBox, Widget
+from asciimatics.widgets import Frame, ListBox, Layout, Button, Divider, Text, Widget
 from asciimatics.widgets.utilities import THEMES
 from asciimatics.scene import Scene
 from asciimatics.screen import Screen
@@ -29,7 +28,8 @@ RED_AND_GREY_THEME = {
     "selected_field": (251, Screen.A_BOLD, Screen.COLOUR_RED),
     "selected_focus_control": (Screen.COLOUR_DEFAULT, Screen.A_BOLD, Screen.COLOUR_DEFAULT),
     "selected_focus_field": (251, Screen.A_BOLD, Screen.COLOUR_RED),
-    "title": (Screen.COLOUR_RED, Screen.A_BOLD, 251)
+    "title": (Screen.COLOUR_RED, Screen.A_BOLD, 251),
+    "error_text": (Screen.COLOUR_RED, Screen.A_BOLD, 251)
 }
 
 class VCardModel():
@@ -67,7 +67,7 @@ class VCardModel():
         self.writeCard.argtypes = [c_char_p, POINTER(Card)]
         self.writeCard.restype = c_int
 
-    def add(self, contact):
+    def create(self, contact):
         pass
 
     def get_cards(self):
@@ -119,7 +119,7 @@ class VCardModel():
 
     def update_current_card(self, details):
         if self.current_id is None:
-            self.add(details)
+            self.create(details)
         else:
             # get the old data for the contact
             card_pointer = POINTER(Card)()
@@ -135,6 +135,7 @@ class VCardModel():
     def delete_card(self, card_id):
         pathlib.Path.unlink("./cards/" + self._vcard_files[card_id])
         del self._vcard_files[card_id]
+
 
 class ListView(Frame):
     def __init__(self, screen, model):
@@ -166,7 +167,7 @@ class ListView(Frame):
         layout.add_widget(Divider())
         layout2 = Layout([1, 1, 1, 1])
         self.add_layout(layout2)
-        layout2.add_widget(Button("Add", self._add), 0)
+        layout2.add_widget(Button("Create", self._create), 0)
         layout2.add_widget(self._edit_button, 1)
         layout2.add_widget(self._delete_button, 2)
         layout2.add_widget(Button("Quit", self._quit), 3)
@@ -181,7 +182,7 @@ class ListView(Frame):
         self._list_view.options = self._model.get_cards()
         self._list_view.value = new_value
 
-    def _add(self):
+    def _create(self):
         self._model.current_id = None
         raise NextScene("vCard Details")
 
@@ -222,10 +223,12 @@ class DetailsView(Frame):
         layout.add_widget(Text("Birthday:", "birthday", disabled=True))
         layout.add_widget(Text("Anniversary:", "anniversary", disabled=True))
         layout.add_widget(Text("Other Properties:", "other_properties", disabled=True))
+        layout.add_widget(Text(name="error_message", disabled=True))
         layout2 = Layout([1, 1, 1, 1])
         self.add_layout(layout2)
         layout2.add_widget(Button("OK", self._ok), 0)
         layout2.add_widget(Button("Cancel", self._cancel), 3)
+        self._layouts[0]._columns[0][5].custom_colour = "error_text"
         self.fix()
 
     def reset(self):
@@ -233,19 +236,27 @@ class DetailsView(Frame):
         super(DetailsView, self).reset()
         self.data = self._model.get_current_card()
         if self.data["file_name"]: # existing contact being edited - only full name is editable
-            self.switch_focus(0, 0, 1) # set focus to full name
+            self.switch_focus(self._layouts[0], 0, 1) # set focus to full name
             self._layouts[0]._columns[0][0].disabled = True
         else: # adding a new contact - file name and full name are editable
-            self.switch_focus(0, 0, 0) # set focus to file name
+            self.switch_focus(self._layouts[0], 0, 0) # set focus to file name
             self._layouts[0]._columns[0][0].disabled = False
 
     def _ok(self):
         self.save()
-        self._model.update_current_card(self.data)
-        raise NextScene("vCard List")
+        if not self.data["file_name"]: # make sure file name isn't blank
+            self._layouts[0]._columns[0][5].value = "File name is required"
+        elif not self.data["file_name"].endswith(".vcf") and not self.data["file_name"].endswith(".vcard"): # make sure file name has correct extension
+            self._layouts[0]._columns[0][5].value = 'File must have either ".vcf" or ".vcard" extension'
+        elif not self.data["full_name"]: # make sure full name isn't empty
+            self._layouts[0]._columns[0][5].value = "Contact name is required"
+        else:
+            self._layouts[0]._columns[0][5].value = ""
+            self._model.update_current_card(self.data)
+            raise NextScene("vCard List")
 
-    @staticmethod
-    def _cancel():
+    def _cancel(self):
+        self._layouts[0]._columns[0][5].value = ""
         raise NextScene("vCard List")
 
 
