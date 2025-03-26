@@ -649,19 +649,19 @@ char* dateToString(void* date) {
         strcpy(dateTimeString, dateTime->text);
         strcat(dateTimeString, "\n");
     } else if (strlen(dateTime->time) > 0) {
-        length = strlen(dateTime->date) + 1 + strlen(dateTime->time) + 1;
+        length = 6 + strlen(dateTime->date) + 7 + strlen(dateTime->time) + 1;
         dateTimeString = (char*)malloc(length + 1);
-        snprintf(dateTimeString, length + 1, "%sT%s\n", dateTime->date, dateTime->time);
+        snprintf(dateTimeString, length + 1, "Date: %s Time: %s\n", dateTime->date, dateTime->time);
     } else {
-        length = strlen(dateTime->date) + 1;
+        length = 6 + strlen(dateTime->date) + 1;
         dateTimeString = (char*)malloc(length + 1);
-        snprintf(dateTimeString, length + 1, "%s\n", dateTime->date);
+        snprintf(dateTimeString, length + 1, "Date: %s\n", dateTime->date);
     }
 
     if (dateTime->UTC) {
-        dateTimeString = (char*)realloc(dateTimeString, strlen(dateTimeString) + 2);
-        dateTimeString[strlen(dateTimeString) - 1] = 'Z';
-        strcat(dateTimeString, "\n");
+        dateTimeString = (char*)realloc(dateTimeString, strlen(dateTimeString) + 7);
+        dateTimeString[strlen(dateTimeString) - 1] = ' '; // replace the newline with a space
+        strcat(dateTimeString, "(UTC)\n");
     }
     
     return dateTimeString;

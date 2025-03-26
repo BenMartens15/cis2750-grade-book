@@ -8,8 +8,9 @@ import sys
 from ctypes import *
 from os import listdir
 from Card import Card, List
+import pathlib
 
-RED_AND_GREY = {
+RED_AND_GREY_THEME = {
     "background": (Screen.COLOUR_DEFAULT, Screen.A_BOLD, 251),
     "borders": (Screen.COLOUR_BLACK, Screen.A_BOLD, 251),
     "button": (Screen.COLOUR_BLACK, Screen.A_BOLD, 251),
@@ -34,7 +35,37 @@ RED_AND_GREY = {
 class VCardModel():
     def __init__(self):
         self.parser_lib = CDLL("./libvcparser.so")
-        self._vcard_files = list()
+        self._vcard_files = dict()
+        self.current_id = None
+
+        # parser library functions
+        self.createCard = self.parser_lib.createCard
+        self.createCard.argtypes = [c_char_p, POINTER(POINTER(Card))]
+        self.createCard.restype = c_int
+
+        self.validateCard = self.parser_lib.validateCard
+        self.validateCard.argtypes = [POINTER(Card)]
+        self.validateCard.restype = c_int
+
+        self.dateToString = self.parser_lib.dateToString
+        self.dateToString.argtypes = [c_void_p]
+        self.dateToString.restype = c_char_p
+
+        self.getFromFront = self.parser_lib.getFromFront
+        self.getFromFront.argtypes = [POINTER(List)]
+        self.getFromFront.restype = c_void_p
+
+        self.insertFront = self.parser_lib.insertFront
+        self.insertFront.argtypes = [POINTER(List), c_void_p]
+        self.insertFront.restype = None
+
+        self.clearList = self.parser_lib.clearList
+        self.clearList.argtypes = [POINTER(List)]
+        self.clearList.restype = None
+
+        self.writeCard = self.parser_lib.writeCard
+        self.writeCard.argtypes = [c_char_p, POINTER(Card)]
+        self.writeCard.restype = c_int
 
     def add(self, contact):
         pass
@@ -43,56 +74,36 @@ class VCardModel():
         self._vcard_files.clear()
         file_list = listdir("./cards/")
 
-        createCard = self.parser_lib.createCard
-        createCard.argtypes = [c_char_p, POINTER(POINTER(Card))]
-        createCard.restype = c_int
-
-        validateCard = self.parser_lib.validateCard
-        validateCard.argtypes = [POINTER(Card)]
-        validateCard.restype = c_int
-
-        file_id = 0
-        cards = []
+        vcard_files = list()
+        card_id = 0
         for file in file_list:
             card_pointer = POINTER(Card)()
 
-            error = createCard(str.encode("./cards/" + file), byref(card_pointer))
+            error = self.createCard(str.encode("./cards/" + file), byref(card_pointer))
             if (error != 0):
                 continue
             
-            error = validateCard(card_pointer)
+            error = self.validateCard(card_pointer)
             if (error != 0):
                 continue
 
-            cards.append(card_pointer.contents)
-            self._vcard_files.append((file, file_id))
-            file_id += 1
+            vcard_files.append((file, card_id))
+            self._vcard_files[card_id] = file
+            card_id += 1
 
-        return self._vcard_files
+        return vcard_files
 
     def get_card_details(self, card_id): # returns a dictionary with keys "file_name", "full_name", "birthday", "anniversary", and "other_properties"
-        createCard = self.parser_lib.createCard
-        createCard.argtypes = [c_char_p, POINTER(POINTER(Card))]
-        createCard.restype = c_int
-
-        dateToString = self.parser_lib.dateToString
-        dateToString.argtypes = [c_void_p]
-        dateToString.restype = c_char_p
-
-        getFromFront = self.parser_lib.getFromFront
-        getFromFront.argtypes = [POINTER(List)]
-        getFromFront.restype = c_void_p
-
         card_pointer = POINTER(Card)()
-        file_name = self._vcard_files[card_id][0]
-        createCard(str.encode("./cards/" + file_name), byref(card_pointer))
+        file_name = self._vcard_files[card_id]
+        self.createCard(str.encode("./cards/" + file_name), byref(card_pointer))
 
-        full_name = cast(getFromFront(card_pointer.contents.fn.contents.values), c_char_p).value.decode('utf-8')
-        bday = dateToString(card_pointer.contents.birthday)
+        full_name = cast(self.getFromFront(card_pointer.contents.fn.contents.values), c_char_p).value.decode('utf-8')
+        bday = self.dateToString(card_pointer.contents.birthday)
         if bday is not None:  
             bday = bday.decode('utf-8')
             bday = bday[:-1] # remove the \n
-        anniversary = dateToString(card_pointer.contents.anniversary)
+        anniversary = self.dateToString(card_pointer.contents.anniversary)
         if anniversary is not None:
             anniversary = anniversary.decode('utf-8')
             anniversary = anniversary[:-1] # remove the \n
@@ -106,12 +117,24 @@ class VCardModel():
         else:
             return self.get_card_details(self.current_id)
 
-    def update_current_contact(self, details):
-        pass
+    def update_current_card(self, details):
+        if self.current_id is None:
+            self.add(details)
+        else:
+            # get the old data for the contact
+            card_pointer = POINTER(Card)()
+            file_name = self._vcard_files[self.current_id]
+            self.createCard(str.encode("./cards/" + file_name), byref(card_pointer))
+            
+            # update the contact information
+            self.clearList(card_pointer.contents.fn.contents.values)
+            self.insertFront(card_pointer.contents.fn.contents.values, str.encode(details["full_name"]))
+            self.writeCard(str.encode("./cards/" + details["file_name"]), card_pointer)
 
-    def delete_contact(self, contact_id):
-        pass
-
+            
+    def delete_card(self, card_id):
+        pathlib.Path.unlink("./cards/" + self._vcard_files[card_id])
+        del self._vcard_files[card_id]
 
 class ListView(Frame):
     def __init__(self, screen, model):
@@ -169,7 +192,7 @@ class ListView(Frame):
 
     def _delete(self):
         self.save()
-        self._model.delete_contact(self.data["cards"])
+        self._model.delete_card(self.data["cards"])
         self._reload_list()
 
     @staticmethod
@@ -212,12 +235,12 @@ class DetailsView(Frame):
 
     def _ok(self):
         self.save()
-        self._model.update_current_contact(self.data)
-        raise NextScene("Main")
+        self._model.update_current_card(self.data)
+        raise NextScene("vCard List")
 
     @staticmethod
     def _cancel():
-        raise NextScene("Main")
+        raise NextScene("vCard List")
 
 
 def main_screen(screen, scene):
@@ -231,7 +254,7 @@ def main_screen(screen, scene):
 
 contacts = VCardModel()
 last_scene = None
-THEMES["red_and_grey"] = RED_AND_GREY
+THEMES["red_and_grey"] = RED_AND_GREY_THEME
 while True:
     try:
         Screen.wrapper(main_screen, catch_interrupt=True, arguments=[last_scene])
