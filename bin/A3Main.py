@@ -271,6 +271,8 @@ class DetailsView(Frame):
             self._layouts[0]._columns[0][5].value = "File name is required"
         elif not self.data["file_name"].endswith(".vcf") and not self.data["file_name"].endswith(".vcard"): # make sure file name has correct extension
             self._layouts[0]._columns[0][5].value = 'File must have either ".vcf" or ".vcard" extension'
+        elif self._layouts[0]._columns[0][0].disabled == False and self.data["file_name"] in listdir("./cards/"):
+            self._layouts[0]._columns[0][5].value = 'File "' + self.data["file_name"] + '" already exists'
         elif not self.data["full_name"]: # make sure full name isn't empty
             self._layouts[0]._columns[0][5].value = "Contact name is required"
         else:
