@@ -128,9 +128,9 @@ class VCardModel():
             
             # update the contact information
             self.clearList(card_pointer.contents.fn.contents.values)
-            self.insertFront(card_pointer.contents.fn.contents.values, str.encode(details["full_name"]))
+            full_name_pointer = create_string_buffer(str.encode(details["full_name"]))
+            self.insertFront(card_pointer.contents.fn.contents.values, full_name_pointer)
             self.writeCard(str.encode("./cards/" + details["file_name"]), card_pointer)
-
             
     def delete_card(self, card_id):
         pathlib.Path.unlink("./cards/" + self._vcard_files[card_id])
