@@ -29,22 +29,32 @@ class ContactDB:
             return True
         except mysql.connector.Error as err:
             return False
-        
+
     def insert_file(self, file_name, last_modified, creation_time):
         query = f"INSERT INTO FILE (file_name, last_modified, creation_time) VALUES ('{file_name}', '{last_modified}', '{creation_time}')"
         try:
             self._cursor.execute(query)
-            return True
         except mysql.connector.Error as err:
-            return False
+            exit()
 
     def insert_contact(self, name, birthday, anniversary, file_id):
         query = f"INSERT INTO CONTACT (name, birthday, anniversary, file_id) VALUES ('{name}', '{birthday}', '{anniversary}', {file_id})"
         try:
             self._cursor.execute(query)
-            return True
         except mysql.connector.Error as err:
-            return False
+            exit()
+        
+    def get_file_id(self, file_name):
+        query = f"SELECT * FROM FILE WHERE file_name='{file_name}'"
+        try:
+            self._cursor.execute(query)
+            result = self._cursor.fetchone()
+            if result: # if the file name exists in the DB
+                return result[0]
+            else: # otherwise just return -1
+                return -1
+        except mysql.connector.Error as err:
+            exit()
         
     def close_connection(self):
         self._cursor.close()    

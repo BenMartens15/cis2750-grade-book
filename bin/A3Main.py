@@ -6,8 +6,7 @@ from asciimatics.exceptions import ResizeScreenError, NextScene, StopApplication
 import sys
 from ctypes import *
 from os import listdir
-from Card import Card, List, Property
-import pathlib
+from Card import Card, List
 from ContactDB import ContactDB
 import os
 from datetime import datetime
@@ -89,7 +88,6 @@ class VCardModel():
         file_list = listdir("./cards/")
 
         vcard_files = list()
-        card_id = 0
         for file in file_list:
             card_pointer = POINTER(Card)()
 
@@ -101,14 +99,39 @@ class VCardModel():
             if (error != 0):
                 continue
 
-            vcard_files.append((file, card_id))
-            self._vcard_files[card_id] = file
-            card_id += 1
+            card_id = self.db.get_file_id(file) # will be -1 if the file doesn't exist in the database
+            if card_id == -1:
+                # add the file to the database
+                last_modified = datetime.fromtimestamp(os.path.getmtime("./cards/" + file))
+                creation_time = datetime.now()
+                self.db.insert_file(file, last_modified, creation_time)
 
-            # insert the files into the database
-            last_modified = datetime.fromtimestamp(os.path.getmtime("./cards/" + file))
-            creation_time = datetime.now()
-            self.db.insert_file(file, last_modified, creation_time)
+                # insert the contact associated with the file into the database
+                card_id = self.db.get_file_id(file) # get the new ID assigned to the file by the database
+                name = cast(self.getFromFront(card_pointer.contents.fn.contents.values), c_char_p).value.decode('utf-8')
+                birthday_datetime = None
+                if card_pointer.contents.birthday:
+                    birthday = card_pointer.contents.birthday.contents
+                    if birthday.isText:
+                        birthday_datetime = None
+                    elif birthday.time:
+                        birthday_datetime = datetime.strptime(birthday.date.decode('utf-8') + birthday.time.decode('utf-8'), "%Y%m%d%H%M%S")
+                    else:
+                        birthday_datetime = datetime.strptime(birthday.date.decode('utf-8'), "%Y%m%d")
+                anniversary_datetime = None
+                if card_pointer.contents.anniversary:
+                    anniversary = card_pointer.contents.anniversary.contents
+                    if anniversary.isText:
+                        anniversary_datetime = None
+                    elif anniversary.time:
+                        anniversary_datetime = datetime.strptime(anniversary.date.decode('utf-8') + anniversary.time.decode('utf-8'), "%Y%m%d%H%M%S")
+                    else:
+                        anniversary_datetime = datetime.strptime(anniversary.date.decode('utf-8'), "%Y%m%d")
+                self.db.insert_contact(name, birthday_datetime, anniversary_datetime, card_id)
+
+            # these both start empty, so the file has to be added whether or not it was already in the database
+            self._vcard_files[card_id] = file
+            vcard_files.append((file, card_id))
 
         return vcard_files
 
@@ -150,10 +173,6 @@ class VCardModel():
             full_name_pointer = create_string_buffer(str.encode(details["full_name"]))
             self.insertFront(card_pointer.contents.fn.contents.values, full_name_pointer)
             self.writeCard(str.encode("./cards/" + details["file_name"]), card_pointer)
-            
-    def delete_card(self, card_id):
-        pathlib.Path.unlink("./cards/" + self._vcard_files[card_id])
-        del self._vcard_files[card_id]
 
     def __date_to_string(self, date):
         if date.isText:
