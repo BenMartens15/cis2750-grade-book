@@ -80,8 +80,35 @@ class VCardModel():
         full_name_pointer = create_string_buffer(str.encode(details["full_name"]))
         self.insertFront(card_pointer.contents.fn.contents.values, full_name_pointer)
         self.writeCard(str.encode("./cards/" + details["file_name"]), card_pointer)
-        card_id = max(self._vcard_files, key=self._vcard_files.get) + 1
-        self._vcard_files[card_id] = details["file_name"]
+
+        # insert the new file into the DB
+        last_modified = datetime.fromtimestamp(os.path.getmtime("./cards/" + details["file_name"]))
+        self.db.insert_file(details["file_name"], last_modified, last_modified) # just set the creation date to the last modified date here
+
+        # add the corresponding contact to the DB
+        card_id = self.db.get_file_id(details["file_name"]) # get the new ID assigned to the file by the database
+        name = cast(self.getFromFront(card_pointer.contents.fn.contents.values), c_char_p).value.decode('utf-8')
+        birthday_datetime = None
+        if card_pointer.contents.birthday:
+            birthday = card_pointer.contents.birthday.contents
+            if birthday.isText:
+                birthday_datetime = None
+            elif birthday.time:
+                birthday_datetime = datetime.strptime(birthday.date.decode('utf-8') + birthday.time.decode('utf-8'), "%Y%m%d%H%M%S")
+            else:
+                birthday_datetime = datetime.strptime(birthday.date.decode('utf-8'), "%Y%m%d")
+        anniversary_datetime = None
+        if card_pointer.contents.anniversary:
+            anniversary = card_pointer.contents.anniversary.contents
+            if anniversary.isText:
+                anniversary_datetime = None
+            elif anniversary.time:
+                anniversary_datetime = datetime.strptime(anniversary.date.decode('utf-8') + anniversary.time.decode('utf-8'), "%Y%m%d%H%M%S")
+            else:
+                anniversary_datetime = datetime.strptime(anniversary.date.decode('utf-8'), "%Y%m%d")
+        self.db.insert_contact(name, birthday_datetime, anniversary_datetime, card_id)
+
+        self._vcard_files[card_id] = details["file_name"] # add the file to the dictionary
 
     def get_cards(self):
         self._vcard_files.clear()
@@ -173,6 +200,9 @@ class VCardModel():
             full_name_pointer = create_string_buffer(str.encode(details["full_name"]))
             self.insertFront(card_pointer.contents.fn.contents.values, full_name_pointer)
             self.writeCard(str.encode("./cards/" + details["file_name"]), card_pointer)
+
+            # update the name in the database
+            self.db.update_name(self.current_id, details["full_name"])
 
     def __date_to_string(self, date):
         if date.isText:
@@ -338,7 +368,7 @@ class DetailsView(Frame):
             self._layouts[0]._columns[0][5].value = "File name is required"
         elif not self.data["file_name"].endswith(".vcf") and not self.data["file_name"].endswith(".vcard"): # make sure file name has correct extension
             self._layouts[0]._columns[0][5].value = 'File must have either ".vcf" or ".vcard" extension'
-        elif self._layouts[0]._columns[0][0].disabled == False and self.data["file_name"] in listdir("./cards/"):
+        elif self._layouts[0]._columns[0][0].disabled == False and self.data["file_name"] in listdir("./cards/"): # if the user tries to create a file with that already exists
             self._layouts[0]._columns[0][5].value = 'File "' + self.data["file_name"] + '" already exists'
         elif not self.data["full_name"]: # make sure full name isn't empty
             self._layouts[0]._columns[0][5].value = "Contact name is required"

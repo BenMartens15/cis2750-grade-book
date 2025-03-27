@@ -43,7 +43,14 @@ class ContactDB:
             self._cursor.execute(query)
         except mysql.connector.Error as err:
             exit()
-        
+
+    def update_name(self, file_id, new_name):
+        query = f"UPDATE CONTACT SET name='{new_name}' WHERE file_id='{file_id}'"
+        try:
+            self._cursor.execute(query)
+        except mysql.connector.Error as err:
+            exit()
+
     def get_file_id(self, file_name):
         query = f"SELECT * FROM FILE WHERE file_name='{file_name}'"
         try:
