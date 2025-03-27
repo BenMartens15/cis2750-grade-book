@@ -8,6 +8,7 @@ from ctypes import *
 from os import listdir
 from Card import Card, List, Property
 import pathlib
+from ContactDB import ContactDB
 
 RED_AND_GREY_THEME = {
     "background": (Screen.COLOUR_DEFAULT, Screen.A_BOLD, 251),
@@ -37,6 +38,7 @@ class VCardModel():
         self.parser_lib = CDLL("./libvcparser.so")
         self._vcard_files = dict()
         self.current_id = None
+        self.db = ContactDB()
 
         # parser library functions
         self.createCard = self.parser_lib.createCard
@@ -160,6 +162,47 @@ class VCardModel():
         return date_string
 
 
+class LoginView(Frame):
+    def __init__(self, screen, model):
+        super(LoginView, self).__init__(screen,
+                                          screen.height * 2 // 3,
+                                          screen.width * 2 // 3,
+                                          hover_focus=True,
+                                          can_scroll=False,
+                                          title="Login",
+                                          reduce_cpu=True)
+        # Save off the model that accesses the contacts database.
+        self._model = model
+
+        self.set_theme("red_and_grey")
+
+        # Create the form for displaying the list of contacts.
+        layout = Layout([100], fill_frame=True)
+        self.add_layout(layout)
+        layout.add_widget(Text("Username:", "username"))
+        layout.add_widget(Text("Password:", "password", hide_char='*'))
+        layout.add_widget(Text("DB Name:", "db_name"))
+        layout.add_widget(Text(name="error_message", disabled=True))
+        layout2 = Layout([1, 1, 1, 1])
+        self.add_layout(layout2)
+        layout2.add_widget(Button("OK", self._ok), 0)
+        layout2.add_widget(Button("Cancel", self._cancel), 3)
+        self._layouts[0]._columns[0][3].custom_colour = "error_text"
+        self.fix()
+
+    def _ok(self):
+        self.save()
+        if not self._model.db.login(self.data["username"], self.data["password"], self.data["db_name"]):
+            self._layouts[0]._columns[0][3].value = "Failed to log in to database"
+        else:
+            self._layouts[0]._columns[0][3].value = ""
+            raise NextScene("vCard List")
+
+    def _cancel(self):
+        self._layouts[0]._columns[0][3].value = ""
+        raise NextScene("vCard List")
+
+
 class ListView(Frame):
     def __init__(self, screen, model):
         super(ListView, self).__init__(screen,
@@ -183,7 +226,7 @@ class ListView(Frame):
             on_change=self._on_pick,
             on_select=self._edit)
         self._edit_button = Button("Edit", self._edit)
-        self._delete_button = Button("Delete", self._delete)
+        self._db_queries_button = Button("DB Queries", self._db_queries)
         layout = Layout([100], fill_frame=True)
         self.add_layout(layout)
         layout.add_widget(self._list_view)
@@ -192,14 +235,14 @@ class ListView(Frame):
         self.add_layout(layout2)
         layout2.add_widget(Button("Create", self._create), 0)
         layout2.add_widget(self._edit_button, 1)
-        layout2.add_widget(self._delete_button, 2)
+        layout2.add_widget(self._db_queries_button, 2)
         layout2.add_widget(Button("Quit", self._quit), 3)
         self.fix()
         self._on_pick()
 
     def _on_pick(self):
         self._edit_button.disabled = self._list_view.value is None
-        self._delete_button.disabled = self._list_view.value is None
+        self._db_queries_button.disabled = self._list_view.value is None
 
     def _reload_list(self, new_value=None):
         self._list_view.options = self._model.get_cards()
@@ -214,10 +257,8 @@ class ListView(Frame):
         self._model.current_id = self.data["cards"]
         raise NextScene("vCard Details")
 
-    def _delete(self):
-        self.save()
-        self._model.delete_card(self.data["cards"])
-        self._reload_list()
+    def _db_queries(self):
+        raise NextScene("DB Queries")
 
     @staticmethod
     def _quit():
@@ -285,10 +326,47 @@ class DetailsView(Frame):
         raise NextScene("vCard List")
 
 
+class DBView(Frame):
+    def __init__(self, screen, model):
+        super(DBView, self).__init__(screen,
+                                          screen.height * 2 // 3,
+                                          screen.width * 2 // 3,
+                                          hover_focus=True,
+                                          can_scroll=False,
+                                          title="Database Queries",
+                                          reduce_cpu=True)
+        # Save off the model that accesses the contacts database.
+        self._model = model
+
+        self.set_theme("red_and_grey")
+
+        # Create the form for displaying the list of contacts.
+        layout = Layout([100], fill_frame=True)
+        self.add_layout(layout)
+        layout.add_widget(Text(name="result", disabled=True))
+        layout2 = Layout([1, 1, 1])
+        self.add_layout(layout2)
+        layout2.add_widget(Button("Display All Contacts", self._display_all), 0)
+        layout2.add_widget(Button("Find Contacts Born in June", self._born_in_june), 1)
+        layout2.add_widget(Button("Cancel", self._cancel), 2)
+        self.fix()
+
+    def _display_all(self):
+        pass
+
+    def _born_in_june(self):
+        pass
+
+    def _cancel(self):
+        raise NextScene("vCard List")
+
+
 def main_screen(screen, scene):
     scenes = [
+        Scene([LoginView(screen, contacts)], -1, name="Login"),
         Scene([ListView(screen, contacts)], -1, name="vCard List"),
-        Scene([DetailsView(screen, contacts)], -1, name="vCard Details")
+        Scene([DetailsView(screen, contacts)], -1, name="vCard Details"),
+        Scene([DBView(screen, contacts)], -1, name="DB Queries")
     ]
 
     screen.play(scenes, stop_on_resize=True, start_scene=scene, allow_int=True)
