@@ -9,6 +9,8 @@ from os import listdir
 from Card import Card, List, Property
 import pathlib
 from ContactDB import ContactDB
+import os
+from datetime import datetime
 
 RED_AND_GREY_THEME = {
     "background": (Screen.COLOUR_DEFAULT, Screen.A_BOLD, 251),
@@ -103,6 +105,11 @@ class VCardModel():
             self._vcard_files[card_id] = file
             card_id += 1
 
+            # insert the files into the database
+            last_modified = datetime.fromtimestamp(os.path.getmtime("./cards/" + file))
+            creation_time = datetime.now()
+            self.db.insert_file(file, last_modified, creation_time)
+
         return vcard_files
 
     def get_card_details(self, card_id): # returns a dictionary with keys "file_name", "full_name", "birthday", "anniversary", and "other_properties"
@@ -193,7 +200,7 @@ class LoginView(Frame):
     def _ok(self):
         self.save()
         if not self._model.db.login(self.data["username"], self.data["password"], self.data["db_name"]):
-            self._layouts[0]._columns[0][3].value = "Failed to log in to database"
+            self._layouts[0]._columns[0][3].value = "Failed to log into database"
         else:
             self._layouts[0]._columns[0][3].value = ""
             raise NextScene("vCard List")
@@ -220,7 +227,7 @@ class ListView(Frame):
         # Create the form for displaying the list of vCard files.
         self._list_view = ListBox(
             Widget.FILL_FRAME,
-            model.get_cards(),
+            list(),
             name="cards",
             add_scroll_bar=True,
             on_change=self._on_pick,
@@ -260,8 +267,8 @@ class ListView(Frame):
     def _db_queries(self):
         raise NextScene("DB Queries")
 
-    @staticmethod
-    def _quit():
+    def _quit(self):
+        self._model.db.close_connection()
         raise StopApplication("User pressed quit")
 
 
