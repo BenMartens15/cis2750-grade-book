@@ -1,0 +1,439 @@
+from asciimatics.widgets import Frame, ListBox, Layout, Button, Divider, Text, Widget
+from asciimatics.widgets.utilities import THEMES
+from asciimatics.scene import Scene
+from asciimatics.screen import Screen
+from asciimatics.exceptions import ResizeScreenError, NextScene, StopApplication
+import sys
+from ctypes import *
+from os import listdir
+from Card import Card, List
+from ContactDB import ContactDB
+import os
+from datetime import datetime
+
+RED_AND_GREY_THEME = {
+    "background": (Screen.COLOUR_DEFAULT, Screen.A_BOLD, 251),
+    "borders": (Screen.COLOUR_BLACK, Screen.A_BOLD, 251),
+    "button": (Screen.COLOUR_BLACK, Screen.A_BOLD, 251),
+    "control": (Screen.COLOUR_DEFAULT, Screen.A_BOLD, Screen.COLOUR_DEFAULT),
+    "disabled": (Screen.COLOUR_BLACK, Screen.A_BOLD, 251),
+    "edit_text": (Screen.COLOUR_BLACK, Screen.A_BOLD, 251),
+    "field": (Screen.COLOUR_BLACK, Screen.A_BOLD, 251),
+    "focus_button": (251, Screen.A_BOLD, Screen.COLOUR_RED),
+    "focus_control": (Screen.COLOUR_DEFAULT, Screen.A_BOLD, Screen.COLOUR_DEFAULT),
+    "focus_edit_text": (240, Screen.A_BOLD, Screen.COLOUR_RED),
+    "focus_field": (Screen.COLOUR_BLACK, Screen.A_BOLD, 251),
+    "invalid": (Screen.COLOUR_DEFAULT, Screen.A_BOLD, Screen.COLOUR_DEFAULT),
+    "label": (Screen.COLOUR_BLACK, Screen.A_BOLD, 251),
+    "scroll": (Screen.COLOUR_DEFAULT, Screen.A_BOLD, Screen.COLOUR_DEFAULT),
+    "selected_control": (Screen.COLOUR_DEFAULT, Screen.A_BOLD, Screen.COLOUR_DEFAULT),
+    "selected_field": (251, Screen.A_BOLD, Screen.COLOUR_RED),
+    "selected_focus_control": (Screen.COLOUR_DEFAULT, Screen.A_BOLD, Screen.COLOUR_DEFAULT),
+    "selected_focus_field": (251, Screen.A_BOLD, Screen.COLOUR_RED),
+    "title": (Screen.COLOUR_RED, Screen.A_BOLD, 251),
+    "error_text": (Screen.COLOUR_RED, Screen.A_BOLD, 251)
+}
+
+class VCardModel():
+    def __init__(self):
+        self.parser_lib = CDLL("./libvcparser.so")
+        self._vcard_files = dict()
+        self.current_id = None
+        self.db = ContactDB()
+
+        # parser library functions
+        self.createCard = self.parser_lib.createCard
+        self.createCard.argtypes = [c_char_p, POINTER(POINTER(Card))]
+        self.createCard.restype = c_int
+
+        self.createEmptyCard = self.parser_lib.createEmptyCard
+        self.createEmptyCard.argtypes = [POINTER(POINTER(Card))]
+        self.createEmptyCard.restype = c_int
+
+        self.validateCard = self.parser_lib.validateCard
+        self.validateCard.argtypes = [POINTER(Card)]
+        self.validateCard.restype = c_int
+
+        self.dateToString = self.parser_lib.dateToString
+        self.dateToString.argtypes = [c_void_p]
+        self.dateToString.restype = c_char_p
+
+        self.getFromFront = self.parser_lib.getFromFront
+        self.getFromFront.argtypes = [POINTER(List)]
+        self.getFromFront.restype = c_void_p
+
+        self.insertFront = self.parser_lib.insertFront
+        self.insertFront.argtypes = [POINTER(List), c_void_p]
+        self.insertFront.restype = None
+
+        self.clearList = self.parser_lib.clearList
+        self.clearList.argtypes = [POINTER(List)]
+        self.clearList.restype = None
+
+        self.writeCard = self.parser_lib.writeCard
+        self.writeCard.argtypes = [c_char_p, POINTER(Card)]
+        self.writeCard.restype = c_int
+
+    def create(self, details):
+        card_pointer = POINTER(Card)()
+        self.createEmptyCard(byref(card_pointer))
+        full_name_pointer = create_string_buffer(str.encode(details["full_name"]))
+        self.insertFront(card_pointer.contents.fn.contents.values, full_name_pointer)
+        self.writeCard(str.encode("./cards/" + details["file_name"]), card_pointer)
+
+        # insert the new file into the DB
+        last_modified = datetime.fromtimestamp(os.path.getmtime("./cards/" + details["file_name"]))
+        self.db.insert_file(details["file_name"], last_modified, last_modified) # just set the creation date to the last modified date here
+
+        # add the corresponding contact to the DB
+        card_id = self.db.get_file_id(details["file_name"]) # get the new ID assigned to the file by the database
+        name = cast(self.getFromFront(card_pointer.contents.fn.contents.values), c_char_p).value.decode('utf-8')
+        birthday_datetime = None
+        if card_pointer.contents.birthday:
+            birthday = card_pointer.contents.birthday.contents
+            if birthday.isText:
+                birthday_datetime = None
+            elif birthday.time:
+                birthday_datetime = datetime.strptime(birthday.date.decode('utf-8') + birthday.time.decode('utf-8'), "%Y%m%d%H%M%S")
+            else:
+                birthday_datetime = datetime.strptime(birthday.date.decode('utf-8'), "%Y%m%d")
+        anniversary_datetime = None
+        if card_pointer.contents.anniversary:
+            anniversary = card_pointer.contents.anniversary.contents
+            if anniversary.isText:
+                anniversary_datetime = None
+            elif anniversary.time:
+                anniversary_datetime = datetime.strptime(anniversary.date.decode('utf-8') + anniversary.time.decode('utf-8'), "%Y%m%d%H%M%S")
+            else:
+                anniversary_datetime = datetime.strptime(anniversary.date.decode('utf-8'), "%Y%m%d")
+        self.db.insert_contact(name, birthday_datetime, anniversary_datetime, card_id)
+
+        self._vcard_files[card_id] = details["file_name"] # add the file to the dictionary
+
+    def get_cards(self):
+        self._vcard_files.clear()
+        file_list = listdir("./cards/")
+
+        vcard_files = list()
+        for file in file_list:
+            card_pointer = POINTER(Card)()
+
+            error = self.createCard(str.encode("./cards/" + file), byref(card_pointer))
+            if (error != 0):
+                continue
+            
+            error = self.validateCard(card_pointer)
+            if (error != 0):
+                continue
+
+            card_id = self.db.get_file_id(file) # will be -1 if the file doesn't exist in the database
+            if card_id == -1:
+                # add the file to the database
+                last_modified = datetime.fromtimestamp(os.path.getmtime("./cards/" + file))
+                creation_time = datetime.now()
+                self.db.insert_file(file, last_modified, creation_time)
+
+                # insert the contact associated with the file into the database
+                card_id = self.db.get_file_id(file) # get the new ID assigned to the file by the database
+                name = cast(self.getFromFront(card_pointer.contents.fn.contents.values), c_char_p).value.decode('utf-8')
+                birthday_datetime = None
+                if card_pointer.contents.birthday:
+                    birthday = card_pointer.contents.birthday.contents
+                    if birthday.isText:
+                        birthday_datetime = None
+                    elif birthday.time:
+                        birthday_datetime = datetime.strptime(birthday.date.decode('utf-8') + birthday.time.decode('utf-8'), "%Y%m%d%H%M%S")
+                    else:
+                        birthday_datetime = datetime.strptime(birthday.date.decode('utf-8'), "%Y%m%d")
+                anniversary_datetime = None
+                if card_pointer.contents.anniversary:
+                    anniversary = card_pointer.contents.anniversary.contents
+                    if anniversary.isText:
+                        anniversary_datetime = None
+                    elif anniversary.time:
+                        anniversary_datetime = datetime.strptime(anniversary.date.decode('utf-8') + anniversary.time.decode('utf-8'), "%Y%m%d%H%M%S")
+                    else:
+                        anniversary_datetime = datetime.strptime(anniversary.date.decode('utf-8'), "%Y%m%d")
+                self.db.insert_contact(name, birthday_datetime, anniversary_datetime, card_id)
+
+            # these both start empty, so the file has to be added whether or not it was already in the database
+            self._vcard_files[card_id] = file
+            vcard_files.append((file, card_id))
+
+        return vcard_files
+
+    def get_card_details(self, card_id): # returns a dictionary with keys "file_name", "full_name", "birthday", "anniversary", and "other_properties"
+        card_pointer = POINTER(Card)()
+        file_name = self._vcard_files[card_id]
+        self.createCard(str.encode("./cards/" + file_name), byref(card_pointer))
+
+        full_name = cast(self.getFromFront(card_pointer.contents.fn.contents.values), c_char_p).value.decode('utf-8')
+        if card_pointer.contents.birthday:
+            bday = self.__date_to_string(card_pointer.contents.birthday.contents)
+        else:
+            bday = ""
+        if card_pointer.contents.anniversary:
+            anniversary = self.__date_to_string(card_pointer.contents.anniversary.contents)
+        else:
+            anniversary = ""
+        other_properties = card_pointer.contents.optionalProperties.contents.length
+
+        return {"file_name": file_name, "full_name": full_name, "birthday": bday, "anniversary": anniversary, "other_properties": str(other_properties)}
+
+    def get_current_card(self):
+        if self.current_id is None:
+            return {"file_name": "", "full_name": "", "birthday": "", "anniversary": "", "other_properties": "0"}
+        else:
+            return self.get_card_details(self.current_id)
+
+    def update_current_card(self, details):
+        if self.current_id is None:
+            self.create(details)
+        else:
+            # get the old data for the contact
+            card_pointer = POINTER(Card)()
+            file_name = self._vcard_files[self.current_id]
+            self.createCard(str.encode("./cards/" + file_name), byref(card_pointer))
+            
+            # update the contact information
+            self.clearList(card_pointer.contents.fn.contents.values)
+            full_name_pointer = create_string_buffer(str.encode(details["full_name"]))
+            self.insertFront(card_pointer.contents.fn.contents.values, full_name_pointer)
+            self.writeCard(str.encode("./cards/" + details["file_name"]), card_pointer)
+
+            # update the name in the database
+            self.db.update_name(self.current_id, details["full_name"])
+
+    def __date_to_string(self, date):
+        if date.isText:
+            date_string = date.text.decode('utf-8')
+        elif date.time:
+            date_string = "Date: " + date.date.decode('utf-8') + " Time: " + date.time.decode('utf-8')
+        else:
+            date_string = "Date: " + date.date.decode('utf-8')
+
+        if date.UTC:
+            date_string += "(UTC)"
+
+        return date_string
+
+
+class LoginView(Frame):
+    def __init__(self, screen, model):
+        super(LoginView, self).__init__(screen,
+                                          screen.height * 2 // 3,
+                                          screen.width * 2 // 3,
+                                          hover_focus=True,
+                                          can_scroll=False,
+                                          title="Login",
+                                          reduce_cpu=True)
+        # Save off the model that accesses the contacts database.
+        self._model = model
+
+        self.set_theme("red_and_grey")
+
+        # Create the form for displaying the list of contacts.
+        layout = Layout([100], fill_frame=True)
+        self.add_layout(layout)
+        layout.add_widget(Text("Username:", "username"))
+        layout.add_widget(Text("Password:", "password", hide_char='*'))
+        layout.add_widget(Text("DB Name:", "db_name"))
+        layout.add_widget(Text(name="error_message", disabled=True))
+        layout2 = Layout([1, 1, 1, 1])
+        self.add_layout(layout2)
+        layout2.add_widget(Button("OK", self._ok), 0)
+        layout2.add_widget(Button("Cancel", self._cancel), 3)
+        self._layouts[0]._columns[0][3].custom_colour = "error_text"
+        self.fix()
+
+    def _ok(self):
+        self.save()
+        if not self._model.db.login(self.data["username"], self.data["password"], self.data["db_name"]):
+            self._layouts[0]._columns[0][3].value = "Failed to log into database"
+        else:
+            self._layouts[0]._columns[0][3].value = ""
+            raise NextScene("vCard List")
+
+    def _cancel(self):
+        self._layouts[0]._columns[0][3].value = ""
+        raise NextScene("vCard List")
+
+
+class ListView(Frame):
+    def __init__(self, screen, model):
+        super(ListView, self).__init__(screen,
+                                       screen.height * 2 // 3,
+                                       screen.width * 2 // 3,
+                                       on_load=self._reload_list,
+                                       hover_focus=True,
+                                       can_scroll=False,
+                                       title="vCard List")
+        # Save off the model that accesses the contacts database.
+        self._model = model
+
+        self.set_theme("red_and_grey")
+
+        # Create the form for displaying the list of vCard files.
+        self._list_view = ListBox(
+            Widget.FILL_FRAME,
+            list(),
+            name="cards",
+            add_scroll_bar=True,
+            on_change=self._on_pick,
+            on_select=self._edit)
+        self._edit_button = Button("Edit", self._edit)
+        self._db_queries_button = Button("DB Queries", self._db_queries)
+        layout = Layout([100], fill_frame=True)
+        self.add_layout(layout)
+        layout.add_widget(self._list_view)
+        layout.add_widget(Divider())
+        layout2 = Layout([1, 1, 1, 1])
+        self.add_layout(layout2)
+        layout2.add_widget(Button("Create", self._create), 0)
+        layout2.add_widget(self._edit_button, 1)
+        layout2.add_widget(self._db_queries_button, 2)
+        layout2.add_widget(Button("Quit", self._quit), 3)
+        self.fix()
+        self._on_pick()
+
+    def _on_pick(self):
+        self._edit_button.disabled = self._list_view.value is None
+        self._db_queries_button.disabled = self._list_view.value is None
+
+    def _reload_list(self, new_value=None):
+        self._list_view.options = self._model.get_cards()
+        self._list_view.value = new_value
+
+    def _create(self):
+        self._model.current_id = None
+        raise NextScene("vCard Details")
+
+    def _edit(self):
+        self.save()
+        self._model.current_id = self.data["cards"]
+        raise NextScene("vCard Details")
+
+    def _db_queries(self):
+        raise NextScene("DB Queries")
+
+    def _quit(self):
+        self._model.db.close_connection()
+        raise StopApplication("User pressed quit")
+
+
+class DetailsView(Frame):
+    def __init__(self, screen, model):
+        super(DetailsView, self).__init__(screen,
+                                          screen.height * 2 // 3,
+                                          screen.width * 2 // 3,
+                                          hover_focus=True,
+                                          can_scroll=False,
+                                          title="vCard Details",
+                                          reduce_cpu=True)
+        # Save off the model that accesses the contacts database.
+        self._model = model
+
+        self.set_theme("red_and_grey")
+
+        # Create the form for displaying the list of contacts.
+        layout = Layout([100], fill_frame=True)
+        self.add_layout(layout)
+        layout.add_widget(Text("File Name:", "file_name"))
+        layout.add_widget(Text("Contact:", "full_name"))
+        layout.add_widget(Text("Birthday:", "birthday", disabled=True))
+        layout.add_widget(Text("Anniversary:", "anniversary", disabled=True))
+        layout.add_widget(Text("Other Properties:", "other_properties", disabled=True))
+        layout.add_widget(Text(name="error_message", disabled=True))
+        layout2 = Layout([1, 1, 1, 1])
+        self.add_layout(layout2)
+        layout2.add_widget(Button("OK", self._ok), 0)
+        layout2.add_widget(Button("Cancel", self._cancel), 3)
+        self._layouts[0]._columns[0][5].custom_colour = "error_text"
+        self.fix()
+
+    def reset(self):
+        # Do standard reset to clear out form, then populate with new data.
+        super(DetailsView, self).reset()
+        self.data = self._model.get_current_card()
+        if self.data["file_name"]: # existing contact being edited - only full name is editable
+            self.switch_focus(self._layouts[0], 0, 1) # set focus to full name
+            self._layouts[0]._columns[0][0].disabled = True
+        else: # adding a new contact - file name and full name are editable
+            self.switch_focus(self._layouts[0], 0, 0) # set focus to file name
+            self._layouts[0]._columns[0][0].disabled = False
+
+    def _ok(self):
+        self.save()
+        if not self.data["file_name"]: # make sure file name isn't blank
+            self._layouts[0]._columns[0][5].value = "File name is required"
+        elif not self.data["file_name"].endswith(".vcf") and not self.data["file_name"].endswith(".vcard"): # make sure file name has correct extension
+            self._layouts[0]._columns[0][5].value = 'File must have either ".vcf" or ".vcard" extension'
+        elif self._layouts[0]._columns[0][0].disabled == False and self.data["file_name"] in listdir("./cards/"): # if the user tries to create a file with that already exists
+            self._layouts[0]._columns[0][5].value = 'File "' + self.data["file_name"] + '" already exists'
+        elif not self.data["full_name"]: # make sure full name isn't empty
+            self._layouts[0]._columns[0][5].value = "Contact name is required"
+        else:
+            self._layouts[0]._columns[0][5].value = ""
+            self._model.update_current_card(self.data)
+            raise NextScene("vCard List")
+
+    def _cancel(self):
+        self._layouts[0]._columns[0][5].value = ""
+        raise NextScene("vCard List")
+
+
+class DBView(Frame):
+    def __init__(self, screen, model):
+        super(DBView, self).__init__(screen,
+                                          screen.height * 2 // 3,
+                                          screen.width * 2 // 3,
+                                          hover_focus=True,
+                                          can_scroll=False,
+                                          title="Database Queries",
+                                          reduce_cpu=True)
+        # Save off the model that accesses the contacts database.
+        self._model = model
+
+        self.set_theme("red_and_grey")
+
+        # Create the form for displaying the list of contacts.
+        layout = Layout([100], fill_frame=True)
+        self.add_layout(layout)
+        layout.add_widget(Text(name="result", disabled=True))
+        layout2 = Layout([1, 1, 1])
+        self.add_layout(layout2)
+        layout2.add_widget(Button("Display All Contacts", self._display_all), 0)
+        layout2.add_widget(Button("Find Contacts Born in June", self._born_in_june), 1)
+        layout2.add_widget(Button("Cancel", self._cancel), 2)
+        self.fix()
+
+    def _display_all(self):
+        pass
+
+    def _born_in_june(self):
+        pass
+
+    def _cancel(self):
+        raise NextScene("vCard List")
+
+
+def main_screen(screen, scene):
+    scenes = [
+        Scene([LoginView(screen, contacts)], -1, name="Login"),
+        Scene([ListView(screen, contacts)], -1, name="vCard List"),
+        Scene([DetailsView(screen, contacts)], -1, name="vCard Details"),
+        Scene([DBView(screen, contacts)], -1, name="DB Queries")
+    ]
+
+    screen.play(scenes, stop_on_resize=True, start_scene=scene, allow_int=True)
+
+
+contacts = VCardModel()
+last_scene = None
+THEMES["red_and_grey"] = RED_AND_GREY_THEME
+while True:
+    try:
+        Screen.wrapper(main_screen, catch_interrupt=True, arguments=[last_scene])
+        sys.exit(0)
+    except ResizeScreenError as e:
+        last_scene = e.scene
